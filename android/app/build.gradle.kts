@@ -26,11 +26,11 @@ android {
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
-        // 单 APK 瘦身：仅保留真机 ARM ABI。x86_64 仅供模拟器（media_kit
-        // 的 libmpv 按 ABI 重复打包，是包体大头）；保留 armeabi-v7a 兼容
-        // 32 位老设备。
+        // 单 APK 瘦身：仅 arm64-v8a（用户决策：放弃 32 位老机型）。
+        // media_kit 的 libmpv 按 ABI 重复打包，是包体大头；x86_64 仅模拟器
+        // 需要。如需恢复老设备支持，加回 "armeabi-v7a" 即可。
         ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+            abiFilters += listOf("arm64-v8a")
         }
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
