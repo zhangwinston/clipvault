@@ -1,0 +1,234 @@
+{
+  "__typename": "Tweet",
+  "favorite_count": 45102,
+  "lang": "en",
+  "possibly_sensitive": false,
+  "created_at": "2024-06-08T14:22:31.000Z",
+  "display_text_range": [
+    0,
+    57
+  ],
+  "entities": {
+    "media": [
+      {
+        "display_url": "pic.x.com/AbCdEfGh12",
+        "expanded_url": "https://x.com/NatureClips/status/1798765432109876543/video/1",
+        "indices": [
+          58,
+          81
+        ],
+        "url": "https://t.co/AbCdEfGh12"
+      },
+      {
+        "display_url": "pic.x.com/ZxWvUtSr34",
+        "expanded_url": "https://x.com/NatureClips/status/1798765432109876543/video/2",
+        "indices": [
+          82,
+          105
+        ],
+        "url": "https://t.co/ZxWvUtSr34"
+      }
+    ]
+  },
+  "id_str": "1798765432109876543",
+  "text": "Golden eagle hunting sequence, part one and two https://t.co/AbCdEfGh12 https://t.co/ZxWvUtSr34",
+  "user": {
+    "id_str": "1493210987654321000",
+    "name": "Nature Clips",
+    "screen_name": "NatureClips",
+    "is_blue_verified": true,
+    "profile_image_shape": "Circle",
+    "verified": false,
+    "profile_image_url_https": "https://pbs.twimg.com/profile_images/1612345678901234567/qRpLmNoPq_normal.jpg"
+  },
+  "edit_control": {
+    "edit_tweet_ids": [
+      "1798765432109876543"
+    ],
+    "editable_until_msecs": "1718110951000",
+    "edits_remaining": "5",
+    "is_edit_eligible": true
+  },
+  "mediaDetails": [
+    {
+      "additional_media_info": {},
+      "display_url": "pic.x.com/AbCdEfGh12",
+      "expanded_url": "https://x.com/NatureClips/status/1798765432109876543/video/1",
+      "ext_media_availability": {
+        "status": "Available"
+      },
+      "indices": [
+        58,
+        81
+      ],
+      "media_url_https": "https://pbs.twimg.com/ext_tw_video_thumb/1798765400123456789/pu/img/AbCdEfGhIjKlMnOp.jpg",
+      "original_info": {
+        "focus_rects": [],
+        "height": 720,
+        "width": 1280
+      },
+      "sizes": {
+        "large": {
+          "h": 720,
+          "resize": "fit",
+          "w": 1280
+        },
+        "medium": {
+          "h": 675,
+          "resize": "fit",
+          "w": 1200
+        },
+        "small": {
+          "h": 383,
+          "resize": "fit",
+          "w": 680
+        },
+        "thumb": {
+          "h": 150,
+          "resize": "crop",
+          "w": 150
+        }
+      },
+      "type": "video",
+      "url": "https://t.co/AbCdEfGh12",
+      "video_info": {
+        "aspect_ratio": [
+          16,
+          9
+        ],
+        "duration_millis": 26380,
+        "variants": [
+          {
+            "content_type": "application/x-mpegURL",
+            "url": "https://video.twimg.com/ext_tw_video/1798765400123456789/pu/pl/QaWsEdRfTgYhUjIk.m3u8?tag=12"
+          },
+          {
+            "bitrate": 256000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/ext_tw_video/1798765400123456789/pu/vid/avc1/320x180/ZaXsCdVfBgNhMkLj.mp4?tag=12"
+          },
+          {
+            "bitrate": 832000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/ext_tw_video/1798765400123456789/pu/vid/avc1/640x360/QaWsEdRfTgYhUjIk.mp4?tag=12"
+          },
+          {
+            "bitrate": 2176000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/ext_tw_video/1798765400123456789/pu/vid/avc1/1280x720/PoIuYtReWqAsDfGh.mp4?tag=12"
+          }
+        ]
+      }
+    },
+    {
+      "additional_media_info": {},
+      "display_url": "pic.x.com/ZxWvUtSr34",
+      "expanded_url": "https://x.com/NatureClips/status/1798765432109876543/video/2",
+      "ext_media_availability": {
+        "status": "Available"
+      },
+      "indices": [
+        82,
+        105
+      ],
+      "media_url_https": "https://pbs.twimg.com/ext_tw_video_thumb/1798765400987654321/pu/img/ZxWvUtSrQpOnMlKj.jpg",
+      "original_info": {
+        "focus_rects": [],
+        "height": 720,
+        "width": 1280
+      },
+      "sizes": {
+        "large": {
+          "h": 720,
+          "resize": "fit",
+          "w": 1280
+        },
+        "medium": {
+          "h": 675,
+          "resize": "fit",
+          "w": 1200
+        },
+        "small": {
+          "h": 383,
+          "resize": "fit",
+          "w": 680
+        },
+        "thumb": {
+          "h": 150,
+          "resize": "crop",
+          "w": 150
+        }
+      },
+      "type": "video",
+      "url": "https://t.co/ZxWvUtSr34",
+      "video_info": {
+        "aspect_ratio": [
+          16,
+          9
+        ],
+        "duration_millis": 18420,
+        "variants": [
+          {
+            "content_type": "application/x-mpegURL",
+            "url": "https://video.twimg.com/ext_tw_video/1798765400987654321/pu/pl/LkJhGfEdSaQwZuXc.m3u8?tag=12"
+          },
+          {
+            "bitrate": 256000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/ext_tw_video/1798765400987654321/pu/vid/avc1/320x180/MnBvCxZlKjHgQwEr.mp4?tag=12"
+          },
+          {
+            "bitrate": 632000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/ext_tw_video/1798765400987654321/pu/vid/avc1/640x360/PoIuYtReWqAsDfGh.mp4?tag=12"
+          },
+          {
+            "bitrate": 1276800,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/ext_tw_video/1798765400987654321/pu/vid/avc1/1280x720/TyUiOpAsDfGhJkLz.mp4?tag=12"
+          }
+        ]
+      }
+    }
+  ],
+  "photos": [],
+  "video": {
+    "aspectRatio": [
+      16,
+      9
+    ],
+    "contentType": "media_entity",
+    "durationMs": 26380,
+    "mediaAvailability": {
+      "status": "available"
+    },
+    "poster": "https://pbs.twimg.com/ext_tw_video_thumb/1798765400123456789/pu/img/AbCdEfGhIjKlMnOp.jpg",
+    "variants": [
+      {
+        "type": "application/x-mpegURL",
+        "src": "https://video.twimg.com/ext_tw_video/1798765400123456789/pu/pl/QaWsEdRfTgYhUjIk.m3u8?tag=12"
+      },
+      {
+        "type": "video/mp4",
+        "src": "https://video.twimg.com/ext_tw_video/1798765400123456789/pu/vid/avc1/320x180/ZaXsCdVfBgNhMkLj.mp4?tag=12"
+      },
+      {
+        "type": "video/mp4",
+        "src": "https://video.twimg.com/ext_tw_video/1798765400123456789/pu/vid/avc1/640x360/QaWsEdRfTgYhUjIk.mp4?tag=12"
+      },
+      {
+        "type": "video/mp4",
+        "src": "https://video.twimg.com/ext_tw_video/1798765400123456789/pu/vid/avc1/1280x720/PoIuYtReWqAsDfGh.mp4?tag=12"
+      }
+    ],
+    "videoId": {
+      "type": "tweet",
+      "id": "1798765432109876543"
+    },
+    "viewCount": 1284533
+  },
+  "conversation_count": 512,
+  "news_action_type": "conversation",
+  "isEdited": false,
+  "isStaleEdit": false
+}

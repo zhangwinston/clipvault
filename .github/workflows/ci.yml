@@ -1,0 +1,106 @@
+# ClipVault CI：静态检查+单测（每次推送）→ Android APK / iOS 未签名 IPA（main）
+#
+# 说明：
+# - iOS 产物为 --no-codesign 的未签名 IPA/XCArchive（安装需自签或企业/商店签名；
+#   如后续提供 Apple 开发者证书，可经 secrets 注入 fastlane/gym 签名）。
+# - Android release APK 默认 debug 签名可直接侧载安装；上架 Play 需配置签名密钥。
+# - 测试语料 test/resources/token_corpus.csv 不入库，由 tools/token_corpus.mjs
+#   确定性再生（seed=42，README §二）。
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  FLUTTER_VERSION: 3.47.5
+
+jobs:
+  test:
+    name: 分析 + 单元/Widget 测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: 依赖解析
+        run: flutter pub get
+
+      - name: 再生 token 语料（10 万行，seed=42）
+        run: node tools/token_corpus.mjs
+
+      - name: 契约校验（夹具 ↔ resolve.schema.json）
+        run: node tools/check_contract.mjs
+
+      - name: 静态分析（strict-casts/raw-types/inference）
+        run: flutter analyze
+
+      - name: 测试（单测 + Widget，离线）
+        run: flutter test
+
+  android-apk:
+    name: Android APK
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: 依赖解析
+        run: flutter pub get
+
+      - name: Release APK
+        run: flutter build apk --release
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: clipvault-android-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+  ios-ipa:
+    name: iOS 未签名 IPA
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: 依赖解析
+        run: flutter pub get
+
+      - name: Release IPA（无签名）
+        run: flutter build ipa --release --no-codesign
+
+      - name: 上传产物（IPA + XCArchive）
+        uses: actions/upload-artifact@v4
+        with:
+          name: clipvault-ios-unsigned
+          path: |
+            build/ios/ipa/*.ipa
+            build/ios/archive/*.xcarchive
+          if-no-files-found: error

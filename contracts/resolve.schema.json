@@ -1,0 +1,138 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://clipvault.local/contracts/resolve.schema.json",
+  "title": "ResolveResult",
+  "description": "ClipVault 解析契约信封：所有 TweetParser 实现（SyndicationParser / FxTwitterParser）的统一产出。字段级定义源自 DESIGN §5.1；本文件是 Dart 侧 ResolveResult 与 Node 侧 check_contract.mjs 的单一事实源。注意：variants 必须按 bitrate 降序排列、仅含 contentType=mp4 且 bitrate>0 的条目（JSON Schema 无法表达排序，由 tools/check_contract.mjs 与 test/parse/contract_test.dart 程序化断言）。",
+  "type": "object",
+  "required": ["tweet", "parserVersion"],
+  "additionalProperties": false,
+  "properties": {
+    "tweet": {
+      "$ref": "#/definitions/TweetMeta"
+    },
+    "parserVersion": {
+      "type": "string",
+      "enum": ["syndication-v1", "fxtwitter-v1"],
+      "description": "产出该结果的解析器标识；备源 fxtwitter-v1 与主源区分，用于诊断与哨兵对账。"
+    }
+  },
+  "definitions": {
+    "TweetMeta": {
+      "type": "object",
+      "required": [
+        "tweetId",
+        "userName",
+        "screenName",
+        "avatarUrl",
+        "text",
+        "createdAt",
+        "thumbnailUrl",
+        "durationMillis",
+        "possiblySensitive",
+        "videoCount",
+        "variants"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tweetId": {
+          "type": "string",
+          "pattern": "^[0-9]{15,20}$",
+          "description": "推文雪花 ID（15~20 位数字，int64 范围内，见 §4.1 双重校验）。"
+        },
+        "userName": {
+          "type": "string",
+          "minLength": 0,
+          "description": "user.name 展示名。"
+        },
+        "screenName": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_]{1,20}$",
+          "description": "user.screen_name @句柄。"
+        },
+        "avatarUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "user.profile_image_url_https 头像直链。"
+        },
+        "text": {
+          "type": "string",
+          "description": "正文（note_tweet 优先于 legacy text）。"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 / RFC 3339 形式的推文创建时间（Dart DateTime.toIso8601String）。"
+        },
+        "thumbnailUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "封面缩略图 mediaDetails[].media_url_https（多视频推文为当前选中项）。"
+        },
+        "durationMillis": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "video_info.duration_millis 视频时长（毫秒）。"
+        },
+        "possiblySensitive": {
+          "type": "boolean",
+          "description": "敏感内容标记；true 时 UI 不加载缩略图（NSFW 双保险，§8.5）。解析层命中即抛 RestrictedContent(E06)，正常产出中应为 false。"
+        },
+        "videoCount": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "mediaDetails 中 video/animated_gif 条目数；>1 时 UI 展示视频切换 Chip。"
+        },
+        "variants": {
+          "type": "array",
+          "minItems": 1,
+          "description": "可下载变体列表：仅 mp4、bitrate>0、按 bitrate 降序（HLS 变体不暴露，§12.9）。",
+          "items": {
+            "$ref": "#/definitions/VideoVariant"
+          }
+        }
+      }
+    },
+    "VideoVariant": {
+      "type": "object",
+      "required": ["contentType", "bitrate", "url", "estimatedBytes", "qualityLabel"],
+      "additionalProperties": false,
+      "properties": {
+        "contentType": {
+          "type": "string",
+          "enum": ["mp4", "hls"],
+          "description": "实际仅暴露 mp4（hls 枚举保留给 P2 条件立项）。"
+        },
+        "bitrate": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "description": "码率 bps，如 2176000。"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "video.twimg.com 直链（含签名参数，会过期——403/410 时由引擎自动重解析刷新，§4.3）。"
+        },
+        "width": {
+          "type": ["integer", "null"],
+          "exclusiveMinimum": 0,
+          "description": "从 URL 路径 /vid/avc1/{W}x{H}/ 正则提取；响应无分辨率字段，缺失为 null（UI 按码率映射兜底标签）。"
+        },
+        "height": {
+          "type": ["integer", "null"],
+          "exclusiveMinimum": 0,
+          "description": "同 width，正则第二捕获组。"
+        },
+        "estimatedBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "bitrate × durationMillis / 8（预估体积，用于 UI 副行展示）。"
+        },
+        "qualityLabel": {
+          "type": "string",
+          "pattern": "^(1080p \\(Full HD\\)|720p \\(HD\\)|480p \\(SD\\)|360p)$",
+          "description": "清晰度标签：由 height 映射 1080p (Full HD) / 720p (HD) / 480p (SD) / 360p；分辨率缺失时按码率兜底映射。"
+        }
+      }
+    }
+  }
+}

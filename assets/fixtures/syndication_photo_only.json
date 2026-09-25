@@ -1,0 +1,141 @@
+{
+  "__typename": "Tweet",
+  "favorite_count": 88214,
+  "lang": "en",
+  "possibly_sensitive": false,
+  "created_at": "2024-04-02T09:15:44.000Z",
+  "display_text_range": [
+    0,
+    28
+  ],
+  "entities": {
+    "media": [
+      {
+        "display_url": "pic.x.com/KjHgFdSa45",
+        "expanded_url": "https://x.com/ArchDaily/status/1791234567890123456/photo/1",
+        "indices": [
+          29,
+          52
+        ],
+        "url": "https://t.co/KjHgFdSa45"
+      },
+      {
+        "display_url": "pic.x.com/LkJhGfEd67",
+        "expanded_url": "https://x.com/ArchDaily/status/1791234567890123456/photo/2",
+        "indices": [
+          53,
+          76
+        ],
+        "url": "https://t.co/LkJhGfEd67"
+      }
+    ]
+  },
+  "id_str": "1791234567890123456",
+  "text": "Brutalist library interior, 1974 https://t.co/KjHgFdSa45 https://t.co/LkJhGfEd67",
+  "user": {
+    "id_str": "1529876543210987600",
+    "name": "Architecture Daily",
+    "screen_name": "ArchDaily",
+    "is_blue_verified": true,
+    "profile_image_shape": "Circle",
+    "verified": false,
+    "profile_image_url_https": "https://pbs.twimg.com/profile_images/1701234567890123456/UmNjIgFrT_normal.jpg"
+  },
+  "edit_control": {
+    "edit_tweet_ids": [
+      "1791234567890123456"
+    ],
+    "editable_until_msecs": "1722592544000",
+    "edits_remaining": "5",
+    "is_edit_eligible": true
+  },
+  "mediaDetails": [
+    {
+      "display_url": "pic.x.com/KjHgFdSa45",
+      "expanded_url": "https://x.com/ArchDaily/status/1791234567890123456/photo/1",
+      "ext_media_availability": {
+        "status": "Available"
+      },
+      "indices": [
+        29,
+        52
+      ],
+      "media_url_https": "https://pbs.twimg.com/media/GxCbAaWbAaAFk1p?format=jpg&name=medium",
+      "original_info": {
+        "focus_rects": [],
+        "height": 1200,
+        "width": 900
+      },
+      "sizes": {
+        "large": {
+          "h": 1200,
+          "resize": "fit",
+          "w": 900
+        },
+        "medium": {
+          "h": 1067,
+          "resize": "fit",
+          "w": 800
+        },
+        "small": {
+          "h": 595,
+          "resize": "fit",
+          "w": 450
+        },
+        "thumb": {
+          "h": 150,
+          "resize": "crop",
+          "w": 150
+        }
+      },
+      "type": "photo",
+      "url": "https://t.co/KjHgFdSa45"
+    },
+    {
+      "display_url": "pic.x.com/LkJhGfEd67",
+      "expanded_url": "https://x.com/ArchDaily/status/1791234567890123456/photo/2",
+      "ext_media_availability": {
+        "status": "Available"
+      },
+      "indices": [
+        53,
+        76
+      ],
+      "media_url_https": "https://pbs.twimg.com/media/GxCbAaWbAaAFk1q?format=jpg&name=medium",
+      "original_info": {
+        "focus_rects": [],
+        "height": 1200,
+        "width": 900
+      },
+      "sizes": {
+        "large": {
+          "h": 1200,
+          "resize": "fit",
+          "w": 900
+        },
+        "medium": {
+          "h": 1067,
+          "resize": "fit",
+          "w": 800
+        },
+        "small": {
+          "h": 595,
+          "resize": "fit",
+          "w": 450
+        },
+        "thumb": {
+          "h": 150,
+          "resize": "crop",
+          "w": 150
+        }
+      },
+      "type": "photo",
+      "url": "https://t.co/LkJhGfEd67"
+    }
+  ],
+  "photos": [],
+  "conversation_count": 342,
+  "news_action_type": "conversation",
+  "isEdited": false,
+  "isStaleEdit": false
+}

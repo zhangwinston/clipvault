@@ -1,0 +1,22 @@
+# ClipVault 静态分析配置
+# 依据 DESIGN §3：flutter_lints + strict-casts + strict-inference
+# 依据 plan.json Step1 任务书：flutter_lints + strict-casts + strict-raw-types
+# 两者取并集，三条 strict 开关全部启用（硬性门槛：flutter analyze 零 error）。
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+  language:
+    strict-casts: true
+    strict-raw-types: true
+    strict-inference: true
+
+# 补充规则：契约关键点显式约束（保持与 flutter_lints 兼容，不额外加码过多，
+# 避免并行开发的其余模块被无关 lint 卡住）。
+linter:
+  rules:
+    # 避免无效的 print 调试残留（日志统一走调试输出）
+    avoid_print: true

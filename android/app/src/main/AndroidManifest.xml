@@ -1,0 +1,82 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- ================================================================
+         Xdown（上架名 ClipVault）Android 权限配置 —— DESIGN §8.1 权限最小化
+         原则：首屏零索取；全部运行时权限延迟到对应功能首次使用时请求。
+
+         明确不申请 READ_MEDIA_VIDEO（DESIGN §8.1 / §1.4 吸收 P4 论证，
+         纠正 PRD 4.2-3 过度索取）：本应用不读取用户既有媒体库——
+         历史缩略图走 URL 网络渲染；自有下载文件经应用私有路径自查自读。
+         ================================================================ -->
+
+    <!-- 网络访问：解析端点与直链分片下载必需（normal 级，无用户感知） -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- P1：常驻下载进度通知（flutter_local_notifications，Android 13+ 运行时权限）。
+         仅在「首次开始下载」场景请求；被拒不阻塞下载，仅无进度通知。
+         仅展示进度、无精确闹钟调度，故不申请 SCHEDULE_EXACT_ALARM。 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- 相册写入（gal.putVideo）：仅 Android ≤28 声明并在保存时请求；
+         Android 29+ 经 MediaStore 写入，零运行时权限（DESIGN §4.4）。 -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
+    <!-- P1：前台服务保活下载（type=dataSync），仅在下载进行中启动（DESIGN §4.3）。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <application
+        android:label="ClipVault"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible to the user
+                 while the Flutter UI initializes. After that, this theme continues
+                 to determine the Window background behind the Flutter UI. -->
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <!-- P1：接收系统「分享」文本（x.com / twitter.com 推文链接），
+                 由 receive_sharing_intent 插件消费。不限定 host：
+                 分享 intent 只携带 mimeType=text/plain，
+                 m./mobile. 子域与分享文案混排链接的归一化提取
+                 统一在 lib/core/url_extract.dart 完成（DESIGN §4.1 输入通道 3）。 -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+        <!-- Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+    <!-- Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+    </queries>
+</manifest>

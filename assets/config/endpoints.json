@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "primary": {
+    "kind": "syndication",
+    "urlTemplate": "https://cdn.syndication.twimg.com/tweet-result?id={id}&lang={lang}&token={token}",
+    "tokenAlgo": "radix36-v1",
+    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+    "timeoutMs": 6000
+  },
+  "fallback": {
+    "kind": "fxtwitter",
+    "enabled": false,
+    "urlTemplate": "https://api.fxtwitter.com/status/{id}"
+  },
+  "driftGuard": {
+    "typenameEquals": "Tweet",
+    "requiredFields": ["user.screen_name"]
+  }
+}
