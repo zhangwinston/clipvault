@@ -9,6 +9,9 @@ analyzer:
     - build/**
     - android/**
     - ios/**
+    # 一次性 dart:io 实证存档脚本（HttpServer 短写丢缓冲的最小复现，
+    # 结论已固化到 test/download 的 RawHttpServer 注释），不参与工程分析
+    - tools/repro_loss.dart
   language:
     strict-casts: true
     strict-raw-types: true
