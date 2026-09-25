@@ -6,7 +6,9 @@ plugins {
 
 android {
     namespace = "com.clipvault.clipvault"
-    compileSdk = flutter.compileSdkVersion
+    // receive_sharing_intent 1.9.0 的 AAR 要求 compileSdk ≥ 37
+    // （高于 flutter.compileSdkVersion=36，需 AGP ≥ 9.4，见 settings.gradle.kts）
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
