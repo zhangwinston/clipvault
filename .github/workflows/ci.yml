@@ -156,7 +156,10 @@ jobs:
 
           > 本 release 随 main 每次推送滚动更新：标签 \`continuous\` 始终指向最新构建，历史版本请到 [Actions](https://github.com/zhangwinston/clipvault/actions) 构建产物区。"
           # 滚动标签：删除旧 release+tag 后在当前提交重建，保证 continuous 指向最新
-          gh release delete continuous --yes --cleanup-tag 2>/dev/null || true
+          # （本作业无 checkout，gh 需 --repo 显式指定仓库而非从 git 远端推断）
+          REPO="${{ github.repository }}"
+          gh release delete continuous --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
           gh release create continuous clipvault-android.apk clipvault-ios-unsigned.ipa \
+            --repo "$REPO" \
             --title "持续集成构建（continuous）" \
             --notes "$NOTES" --prerelease --target "$GITHUB_SHA"
