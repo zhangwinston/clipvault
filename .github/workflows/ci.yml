@@ -93,6 +93,13 @@ jobs:
       - name: 依赖解析
         run: flutter pub get
 
+      - name: 清理 SwiftPM 缓存（规避 runner 缓存偶发损坏）
+        # sqlite3_flutter_libs 经 SPM 拉取 CSQLite；GitHub macOS runner 的
+        # ~/Library/Caches/org.swift.swiftpm 偶发残留指向已删除仓库的缓存条目，
+        # 使 xcodebuild 解析依赖 fatal（同代码同配置约 1/4 概率复现）。
+        # 构建前强制清缓存走全新 clone，彻底规避。
+        run: rm -rf ~/Library/Caches/org.swift.swiftpm || true
+
       - name: Release 构建（无签名 xcarchive）
         run: flutter build ipa --release --no-codesign
 
