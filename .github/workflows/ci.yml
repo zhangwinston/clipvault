@@ -104,3 +104,45 @@ jobs:
             build/ios/ipa/*.ipa
             build/ios/archive/*.xcarchive
           if-no-files-found: error
+
+  release:
+    name: 持续集成发布（rolling release）
+    needs: [test, android-apk, ios-ipa]
+    # PR 构建不发 release；push main / 手动触发时滚动更新
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 下载全部构建产物
+        uses: actions/download-artifact@v4
+        with:
+          pattern: clipvault-*
+          path: dist
+          merge-multiple: true
+
+      - name: 整理产物
+        run: |
+          mv dist/app-release.apk clipvault-android.apk
+          mv dist/ipa/*.ipa clipvault-ios-unsigned.ipa
+          ls -lh clipvault-*
+
+      - name: 刷新 continuous release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES="## 持续集成构建
+          提交：\`${GITHUB_SHA:0:7}\`
+          构建时间：$(date '+%Y-%m-%d %H:%M UTC')
+
+          | 产物 | 说明 |
+          |---|---|
+          | \`clipvault-android.apk\` | Release 构建 · debug 签名（可直接侧载安装；上架商店需替换正式签名） |
+          | \`clipvault-ios-unsigned.ipa\` | Release 构建 · **未签名**（安装需自签：AltStore / Sideloadly / 企业证书） |
+
+          > 本 release 随 main 每次推送滚动更新：标签 \`continuous\` 始终指向最新构建，历史版本请到 [Actions](https://github.com/zhangwinston/clipvault/actions) 构建产物区。"
+          # 滚动标签：删除旧 release+tag 后在当前提交重建，保证 continuous 指向最新
+          gh release delete continuous --yes --cleanup-tag 2>/dev/null || true
+          gh release create continuous clipvault-android.apk clipvault-ios-unsigned.ipa \
+            --title "持续集成构建（continuous）" \
+            --notes "$NOTES" --prerelease --target "$GITHUB_SHA"

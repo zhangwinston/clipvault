@@ -1,6 +1,15 @@
 # ClipVault（内部代号 Xdown）
 
-[![CI](https://github.com/zhangwinston/clipvault/actions/workflows/ci.yml/badge.svg)](https://github.com/zhangwinston/clipvault/actions/workflows/ci.yml)
+[![CI](https://github.com/zhangwinston/clipvault/actions/workflows/ci.yml/badge.svg)](https://github.com/zhangwinston/clipvault/actions/workflows/ci.yml) [![Release](https://img.shields.io/badge/release-continuous-blue)](https://github.com/zhangwinston/clipvault/releases/tag/continuous)
+
+## 下载安装
+
+| 产物 | 入口 | 说明 |
+|---|---|---|
+| Android APK | [Releases · continuous](https://github.com/zhangwinston/clipvault/releases/tag/continuous) | Release 构建 · debug 签名，下载后直接侧载安装 |
+| iOS IPA | 同上 | **未签名**，需自签（AltStore / Sideloadly / 企业证书）后安装 |
+
+> `continuous` 标签随 main 分支每次推送滚动更新，始终是最新构建；无需登录即可下载。
 
 X(Twitter) 视频下载 App —— Flutter 单代码库（Android + iOS），纯客户端 Syndication 解析（DESIGN 方案 A'）。
 
