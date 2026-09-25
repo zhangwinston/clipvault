@@ -93,16 +93,25 @@ jobs:
       - name: 依赖解析
         run: flutter pub get
 
-      - name: Release IPA（无签名）
+      - name: Release 构建（无签名 xcarchive）
         run: flutter build ipa --release --no-codesign
 
-      - name: 上传产物（IPA + XCArchive）
+      - name: 打包未签名 IPA（xcarchive → Payload 打包）
+        # flutter build ipa --no-codesign 在无签名环境只产 xcarchive 不导出
+        # IPA（跳过 ExportOptions 步骤），此处按社区标准做法手工打包：
+        # Runner.app → Payload/ → zip 为可被 Sideloadly/AltStore 重签的 IPA
+        run: |
+          mkdir -p build/ios/payload/Payload
+          cp -R build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app \
+            build/ios/payload/Payload/Runner.app
+          (cd build/ios/payload && zip -qry ../clipvault-unsigned.ipa Payload)
+          ls -lh build/ios/clipvault-unsigned.ipa
+
+      - name: 上传产物（未签名 IPA）
         uses: actions/upload-artifact@v4
         with:
           name: clipvault-ios-unsigned
-          path: |
-            build/ios/ipa/*.ipa
-            build/ios/archive/*.xcarchive
+          path: build/ios/clipvault-unsigned.ipa
           if-no-files-found: error
 
   release:
@@ -121,10 +130,15 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: 整理产物
+      - name: 整理产物（find 定位，不依赖 artifact 内部结构）
         run: |
-          mv dist/app-release.apk clipvault-android.apk
-          mv dist/ipa/*.ipa clipvault-ios-unsigned.ipa
+          APK=$(find dist -name "app-release.apk" | head -1)
+          IPA=$(find dist -name "*.ipa" | head -1)
+          if [ -z "$APK" ] || [ -z "$IPA" ]; then
+            echo "产物缺失：APK='$APK' IPA='$IPA'"; find dist -type f | head -20; exit 1
+          fi
+          mv "$APK" clipvault-android.apk
+          mv "$IPA" clipvault-ios-unsigned.ipa
           ls -lh clipvault-*
 
       - name: 刷新 continuous release
