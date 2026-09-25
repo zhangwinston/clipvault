@@ -1,12 +1,22 @@
 /// 内置播放器（P1，DESIGN §4.5 / §7.1-5）：
-/// video_player 封装 + 手势层（横滑进度 / 左半屏竖滑音量 / 返回）。
+/// media_kit（libmpv）+ 自绘手势层（横滑进度 / 左半屏竖滑音量 / 返回）。
+///
+/// 为何弃用官方 video_player：其 Android 后端（ExoPlayer/media3）在颜色
+/// 元数据未指定的视频上初始化抛 PlatformException（"Unset color range,
+/// Unset color transfer, false, 8bit Luma, 8bit Chroma"——部分机型编解码
+/// 器 configure 时拒绝 unset ColorInfo），而 X CDN 的 MP4 普遍不带色彩
+/// 信息，实测 100% 触发且上游无修复（DESIGN §9-5 预设 media_kit 候补）。
+/// libmpv 后端对缺失色彩元数据宽容。注意 media_kit 1.2.x 已移除
+/// video_player 兼容层，本页使用其原生 API（Player/VideoController/Video）。
+///
 /// 全屏旋转与 PiP 待真机验证后揭示（§12-3/§12-10）；widget 测试不触本页。
 library;
 
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({super.key, required this.filePath});
@@ -18,12 +28,13 @@ class PlayerScreen extends StatefulWidget {
 }
 
 class _PlayerScreenState extends State<PlayerScreen> {
-  VideoPlayerController? _controller;
+  Player? _player;
+  VideoController? _controller;
   String? _error;
-  bool _initialized = false;
   bool _controlsVisible = true;
   double _dragStartPosition = 0;
-  double _dragStartVolume = 1;
+  // media_kit 音量域为 0~100（区别于 video_player 的 0~1）
+  double _dragStartVolume = 100;
 
   @override
   void initState() {
@@ -32,67 +43,78 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _init() async {
-    final controller = VideoPlayerController.file(File(widget.filePath));
-    try {
-      await controller.initialize();
-      if (!mounted) {
-        await controller.dispose();
-        return;
-      }
-      setState(() => _initialized = true);
+    MediaKit.ensureInitialized();
+    final file = File(widget.filePath);
+    if (!await file.exists()) {
+      if (mounted) setState(() => _error = '文件不存在：${widget.filePath}');
+      return;
+    }
+    final player = Player();
+    final controller = VideoController(player);
+    // 播放错误经流异步上报（open 不抛同步异常）
+    player.stream.error.listen((e) {
+      if (!mounted || e.isEmpty) return;
+      setState(() => _error = e);
+    });
+    if (!mounted) {
+      await player.dispose();
+      return;
+    }
+    setState(() {
+      _player = player;
       _controller = controller;
-      await controller.play();
+    });
+    try {
+      // open 默认自动播放（与旧实现行为一致）
+      await player.open(Media(widget.filePath));
     } catch (e) {
-      await controller.dispose();
       if (mounted) setState(() => _error = '$e');
     }
   }
 
   @override
   void dispose() {
-    _controller?.dispose();
+    _player?.dispose();
     super.dispose();
   }
 
   void _togglePlay() {
-    final c = _controller;
-    if (c == null || !c.value.isInitialized) return;
-    if (c.value.isPlaying) {
-      c.pause();
-    } else {
-      c.play();
-    }
+    _player?.playOrPause();
   }
 
   /// 横滑：按视频宽度比例映射为进度增量
   void _onHorizontalDragUpdate(DragUpdateDetails details) {
-    final c = _controller;
-    if (c == null || !c.value.isInitialized) return;
+    final p = _player;
+    if (p == null) return;
     final width = MediaQuery.of(context).size.width;
     final ratioDelta = details.delta.dx / width;
-    final target = c.value.position + c.value.duration * ratioDelta;
-    c.seekTo(target);
+    final duration = p.state.duration;
+    final targetMs = (p.state.position + duration * ratioDelta)
+        .inMilliseconds
+        .clamp(0, duration.inMilliseconds);
+    p.seek(Duration(milliseconds: targetMs));
   }
 
-  /// 左半屏竖滑：音量
+  /// 左半屏竖滑：音量（media_kit 域 0~100）
   void _onVerticalDragStart(DragStartDetails details) {
     _dragStartPosition = details.globalPosition.dy;
-    _dragStartVolume = _controller?.value.volume ?? 1;
+    _dragStartVolume = _player?.state.volume ?? 100;
   }
 
   void _onVerticalDragUpdate(DragUpdateDetails details) {
-    final c = _controller;
-    if (c == null) return;
+    final p = _player;
+    if (p == null) return;
     if (details.globalPosition.dx > MediaQuery.of(context).size.width / 2) return;
     final height = MediaQuery.of(context).size.height;
     final delta = (_dragStartPosition - details.globalPosition.dy) / height;
-    final volume = (_dragStartVolume + delta).clamp(0.0, 1.0);
-    c.setVolume(volume);
+    final volume = (_dragStartVolume + delta * 100).clamp(0.0, 100.0);
+    p.setVolume(volume);
   }
 
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
+    final player = _player;
     return Scaffold(
       backgroundColor: Colors.black,
       body: GestureDetector(
@@ -110,23 +132,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 children: [
                   const Icon(Icons.error_outline, color: Colors.white54, size: 48),
                   const SizedBox(height: 8),
-                  Text(_error!, style: const TextStyle(color: Colors.white70)),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Text(_error!, style: const TextStyle(color: Colors.white70)),
+                  ),
                 ],
               )
-            else if (!_initialized)
-              const CircularProgressIndicator()
             else if (controller != null)
-              Center(child: AspectRatio(aspectRatio: controller.value.aspectRatio, child: VideoPlayer(controller))),
-            if (_controlsVisible) _buildControls(context, controller),
+              // libmpv 渲染视图（contain 适配，无需外部 AspectRatio）
+              Center(child: Video(controller: controller)),
+            if (_controlsVisible) _buildControls(context, player),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildControls(BuildContext context, VideoPlayerController? controller) {
-    final position = controller?.value.position ?? Duration.zero;
-    final duration = controller?.value.duration ?? Duration.zero;
+  Widget _buildControls(BuildContext context, Player? player) {
     return Positioned.fill(
       child: Column(
         children: [
@@ -140,27 +162,61 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ),
           ),
           const Spacer(),
-          if (controller != null && _initialized)
-            IconButton(
-              iconSize: 56,
-              color: Colors.white,
-              icon: Icon(controller.value.isPlaying ? Icons.pause_circle : Icons.play_circle),
-              onPressed: _togglePlay,
+          if (player != null && _error == null) ...[
+            StreamBuilder<bool>(
+              stream: player.stream.playing,
+              initialData: player.state.playing,
+              builder: (context, snap) => IconButton(
+                iconSize: 56,
+                color: Colors.white,
+                icon: Icon(snap.data == true ? Icons.pause_circle : Icons.play_circle),
+                onPressed: _togglePlay,
+              ),
             ),
-          const Spacer(),
-          if (controller != null && _initialized)
+            const SizedBox(height: 12),
             SafeArea(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    '${_fmt(position)} / ${_fmt(duration)}',
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  StreamBuilder<Duration>(
+                    stream: player.stream.position,
+                    initialData: player.state.position,
+                    builder: (context, snap) {
+                      final position = snap.data ?? Duration.zero;
+                      final duration = player.state.duration;
+                      final posMs = duration > Duration.zero
+                          ? position.inMilliseconds.clamp(0, duration.inMilliseconds)
+                          : 0;
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '${_fmt(position)} / ${_fmt(duration)}',
+                            style: const TextStyle(color: Colors.white70, fontSize: 12),
+                          ),
+                          SizedBox(
+                            height: 24,
+                            child: Slider(
+                              value: duration > Duration.zero
+                                  ? posMs / duration.inMilliseconds
+                                  : 0,
+                              onChanged: (ratio) => player.seek(
+                                Duration(
+                                  milliseconds:
+                                      (ratio * duration.inMilliseconds).round(),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   ),
-                  VideoProgressIndicator(controller, allowScrubbing: true),
                 ],
               ),
             ),
+          ],
+          const Spacer(),
         ],
       ),
     );

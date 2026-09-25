@@ -41,8 +41,16 @@ dependencies:
   flutter_localizations:
     sdk: flutter
 
-  # ---- 内置播放器（P1；DESIGN §9-5：官方维护优先，media_kit 候补）----
-  video_player: 2.14.0
+  # ---- 内置播放器（P1）----
+  # video_player 2.14.0（ExoPlayer/media3 后端）在颜色元数据未指定的视频上
+  # 初始化必败（PlatformException: Unset color range/Unset color transfer，
+  # flutter/flutter#81804 关联族系，X CDN 的 MP4 普遍无色彩信息）→ 触发
+  # DESIGN §9-5 预设的候补路线：media_kit（libmpv 后端对缺失色彩元数据
+  # 宽容）。注：media_kit 1.2.x 已移除 video_player 兼容层，播放器页使用
+  # 其原生 API（Player/VideoController/Video），见 lib/player/player_screen.dart。
+  media_kit: 1.2.6
+  media_kit_video: 2.0.1
+  media_kit_libs_video: 1.0.7
 
   # ---- 前台进度通知（P1-Android ForegroundService 常驻通知）----
   flutter_local_notifications: 22.3.1
