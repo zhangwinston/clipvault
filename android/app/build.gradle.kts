@@ -54,6 +54,15 @@ android {
             // .so 压缩后下载体积约降四成；代价是安装时解压到 /data、启动
             // 略慢——侧载分发场景下载体积优先。
             useLegacyPackaging = true
+            // AGP 打包层硬过滤：--target-platform android-arm64 只管 Flutter
+            // 产物（libapp/libflutter），media_kit 以 jar 依赖（fileTree）引入
+            // 的 .so 不受 ndk.abiFilters 约束（实测 v7a/x86_64 半套仍入包），
+            // 此处按 APK 内路径强制剔除。恢复多 ABI 时删除这三行。
+            excludes += listOf(
+                "lib/armeabi-v7a/**",
+                "lib/x86/**",
+                "lib/x86_64/**",
+            )
         }
     }
 }

@@ -73,7 +73,9 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-            ~/.pub-cache/hosted/pub.dev/media_kit_libs_android_video-*/android/build
+            # 仅缓存 libmpv jar 下载层（v1.1.7/），不含插件 output/ 打包中间
+            # 产物——避免恢复的旧 output 影响打包输入集
+            ~/.pub-cache/hosted/pub.dev/media_kit_libs_android_video-*/android/build/v1.1.7
           key: android-gradle-${{ runner.os }}-${{ hashFiles('pubspec.lock', 'android/gradle/wrapper/gradle-wrapper.properties') }}
           restore-keys: |
             android-gradle-${{ runner.os }}-
