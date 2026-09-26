@@ -3,7 +3,6 @@ package com.clipvault.clipvault
 import android.content.ContentValues
 import android.net.Uri
 import android.os.Build
-import android.os.Environment
 import android.provider.MediaStore
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -25,7 +24,10 @@ class MainActivity : FlutterActivity() {
     private companion object {
         const val CHANNEL = "clipvault/backup"
         const val BACKUP_NAME = "clipvault_backup.json"
-        const val BACKUP_RELATIVE_DIR = Environment.DIRECTORY_DOWNLOADS + "/ClipVault"
+
+        // Environment.DIRECTORY_DOWNLOADS 的字面量（"Download"）——Java 静态
+        // 字段对 Kotlin const 非编译期常量，这里取字面量保持 const 语义
+        const val BACKUP_RELATIVE_DIR = "Download/ClipVault"
     }
 
     override fun configureFlutterEngine(engine: FlutterEngine) {
