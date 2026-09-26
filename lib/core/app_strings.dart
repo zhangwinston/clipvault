@@ -166,8 +166,11 @@ abstract final class AppStrings {
   static const String settingsSectionLegal = '法律';
   static const String settingsDisclaimerRevisit = '重新查看《使用协议》';
 
-  /// 已同意版本前缀，与版本号拼接：「已同意版本 1 → v1」。
+  /// 已同意版本前缀，与版本号拼接：「已同意版本 v1」/「已同意版本 v1 → v2」。
   static const String settingsDisclaimerVersionPrefix = '已同意版本 ';
+
+  /// 从未同意过条款时的副标题。
+  static const String settingsDisclaimerNone = '尚未同意《使用协议》';
 
   /// 权限区：系统粘贴横幅/剪贴板 Toast 解释（§8.2）。
   static const String settingsSectionPermission = '权限';
@@ -206,11 +209,11 @@ abstract final class AppStrings {
   static const String settingsConcurrency = '并发下载数';
   static const String settingsWifiOnly = '仅 Wi-Fi 下载';
 
-  /// 诊断区（§7.4：配置版本，仅技术只读）。
-  static const String settingsSectionDiag = '诊断';
+  /// 关于区（§7.4；视觉评审主题 H：原「诊断」术语对普通用户是天书）。
+  static const String settingsSectionDiag = '关于';
   static const String settingsVersion = '版本信息';
-  static const String settingsEndpointVersion = '端点配置版本';
-  static const String settingsDiagHint = '以上为诊断信息，仅作技术只读展示。';
+  static const String settingsEndpointVersion = '解析服务配置';
+  static const String settingsDiagHint = '以上信息仅作技术只读展示。';
 
   // ---------------- 免责声明（§8.3，版本化）----------------
 

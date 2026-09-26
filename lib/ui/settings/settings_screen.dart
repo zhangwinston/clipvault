@@ -60,101 +60,143 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
   Widget build(BuildContext context) {
     final settings = widget.settings;
     final scheme = Theme.of(context).colorScheme;
+    // 视觉评审主题 H：分组卡片化（此前裸 ListView 平铺无容器层级）+
+    // 免责副标题版本语义修正 + 并发数滑条改 SegmentedButton。
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 8),
       children: [
         _header(context, AppStrings.settingsSectionLegal),
-        ListTile(
-          leading: const Icon(Icons.gavel_outlined),
-          title: Text(AppStrings.settingsDisclaimerRevisit),
-          subtitle: Text('${AppStrings.settingsDisclaimerVersionPrefix}'
-              '${settings.disclaimerVersion} → v$kCurrentDisclaimerVersion'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => showDisclaimerDialog(
-            context,
-            // 重看场景：同意则刷新版本记录；拒绝保持原状（首次启动路径才强制退出）
-            onDecline: () {},
-            scenario: DisclaimerScenario.review,
-          ).then((accepted) {
-            if (accepted) ref.read(settingsControllerProvider.notifier).acceptDisclaimer();
-          }),
-        ),
-        _header(context, AppStrings.settingsSectionPermission),
-        ListTile(
-          leading: const Icon(Icons.privacy_tip_outlined),
-          title: Text(AppStrings.settingsPermissionTitle),
-          subtitle: Text(AppStrings.settingsPermissionBody),
-        ),
-        _header(context, AppStrings.settingsSectionCache),
-        ListTile(
-          leading: const Icon(Icons.folder_outlined),
-          title: Text(AppStrings.settingsCacheUsage),
-          trailing: Text(_cacheBytes == null ? '--' : formatBytes(_cacheBytes!)),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: OutlinedButton.icon(
-            onPressed: () => _confirmCleanCache(context),
-            icon: const Icon(Icons.cleaning_services_outlined),
-            label: const Text(AppStrings.settingsCacheClean),
-          ),
-        ),
-        _header(context, AppStrings.settingsSectionPrefs),
-        ListTile(
-          leading: const Icon(Icons.high_quality_outlined),
-          title: Text(AppStrings.settingsQualityMode),
-          trailing: DropdownButton<String>(
-            value: settings.qualityMode == kQualityMode720p
-                ? kQualityMode720p
-                : kQualityModeHighest,
-            onChanged: (value) {
-              if (value != null) {
-                ref.read(settingsControllerProvider.notifier).setQualityMode(value);
+        _group([
+          ListTile(
+            leading: const Icon(Icons.gavel_outlined),
+            title: Text(AppStrings.settingsDisclaimerRevisit),
+            subtitle: Text(_disclaimerSubtitle(settings.disclaimerVersion)),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => showDisclaimerDialog(
+              context,
+              // 重看场景：同意则刷新版本记录；拒绝保持原状（首次启动路径才强制退出）
+              onDecline: () {},
+              scenario: DisclaimerScenario.review,
+            ).then((accepted) {
+              if (accepted) {
+                ref.read(settingsControllerProvider.notifier).acceptDisclaimer();
               }
-            },
-            items: const [
-              DropdownMenuItem(value: kQualityModeHighest, child: Text(AppStrings.settingsQualityHighest)),
-              DropdownMenuItem(value: kQualityMode720p, child: Text(AppStrings.settingsQuality720p)),
-            ],
+            }),
           ),
-        ),
-        ListTile(
-          leading: const Icon(Icons.format_list_numbered),
-          title: Text('${AppStrings.settingsConcurrency}：${settings.concurrency}'),
-          subtitle: Slider(
-            value: settings.concurrency.toDouble(),
-            min: 1,
-            max: 3,
-            divisions: 2,
-            label: '${settings.concurrency}',
-            onChanged: (value) =>
-                ref.read(settingsControllerProvider.notifier).setConcurrency(value.toInt()),
+        ]),
+        _header(context, AppStrings.settingsSectionPermission),
+        _group([
+          ListTile(
+            leading: const Icon(Icons.privacy_tip_outlined),
+            title: Text(AppStrings.settingsPermissionTitle),
+            subtitle: Text(AppStrings.settingsPermissionBody),
           ),
-        ),
+        ]),
+        _header(context, AppStrings.settingsSectionCache),
+        _group([
+          ListTile(
+            leading: const Icon(Icons.folder_outlined),
+            title: Text(AppStrings.settingsCacheUsage),
+            trailing:
+                Text(_cacheBytes == null ? '--' : formatBytes(_cacheBytes!)),
+          ),
+          const Divider(height: 1, indent: 16, endIndent: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _confirmCleanCache(context),
+                icon: const Icon(Icons.cleaning_services_outlined),
+                label: const Text(AppStrings.settingsCacheClean),
+              ),
+            ),
+          ),
+        ]),
+        _header(context, AppStrings.settingsSectionPrefs),
+        _group([
+          ListTile(
+            leading: const Icon(Icons.high_quality_outlined),
+            title: Text(AppStrings.settingsQualityMode),
+            trailing: DropdownButton<String>(
+              value: settings.qualityMode == kQualityMode720p
+                  ? kQualityMode720p
+                  : kQualityModeHighest,
+              onChanged: (value) {
+                if (value != null) {
+                  ref
+                      .read(settingsControllerProvider.notifier)
+                      .setQualityMode(value);
+                }
+              },
+              items: const [
+                DropdownMenuItem(
+                    value: kQualityModeHighest,
+                    child: Text(AppStrings.settingsQualityHighest)),
+                DropdownMenuItem(
+                    value: kQualityMode720p,
+                    child: Text(AppStrings.settingsQuality720p)),
+              ],
+            ),
+          ),
+          const Divider(height: 1, indent: 16, endIndent: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${AppStrings.settingsConcurrency}：${settings.concurrency}',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: SegmentedButton<int>(
+                    segments: const [
+                      ButtonSegment(value: 1, label: Text('1')),
+                      ButtonSegment(value: 2, label: Text('2')),
+                      ButtonSegment(value: 3, label: Text('3')),
+                    ],
+                    selected: {settings.concurrency},
+                    onSelectionChanged: (selection) => ref
+                        .read(settingsControllerProvider.notifier)
+                        .setConcurrency(selection.first),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, indent: 16, endIndent: 16),
           SwitchListTile(
             secondary: const Icon(Icons.wifi),
             title: Text(AppStrings.settingsWifiOnly),
             value: settings.wifiOnly,
-            onChanged: (value) =>
-                ref.read(settingsControllerProvider.notifier).setWifiOnly(value),
+            onChanged: (value) => ref
+                .read(settingsControllerProvider.notifier)
+                .setWifiOnly(value),
           ),
+        ]),
         _header(context, AppStrings.settingsSectionDiag),
-        ListTile(
-          leading: const Icon(Icons.info_outline),
-          title: Text(AppStrings.settingsVersion),
-          trailing: const Text(kAppVersion),
-        ),
-        ListTile(
-          leading: const Icon(Icons.dns_outlined),
-          title: Text(AppStrings.settingsEndpointVersion),
-          // 优先读端点配置仓库当前生效版本（接线后随 assets 加载/远端热更
-          // 刷新；仓库未就绪时回落 prefs 快照值）
-          trailing: Text(
-            'v${ref.watch(endpointConfigRepositoryProvider).value?.current.version ?? settings.endpointConfigVersion}',
+        _group([
+          ListTile(
+            leading: const Icon(Icons.info_outline),
+            title: Text(AppStrings.settingsVersion),
+            trailing: const Text(kAppVersion),
           ),
-        ),
+          const Divider(height: 1, indent: 16, endIndent: 16),
+          ListTile(
+            leading: const Icon(Icons.dns_outlined),
+            title: Text(AppStrings.settingsEndpointVersion),
+            // 优先读端点配置仓库当前生效版本（接线后随 assets 加载/远端热更
+            // 刷新；仓库未就绪时回落 prefs 快照值）
+            trailing: Text(
+              'v${ref.watch(endpointConfigRepositoryProvider).value?.current.version ?? settings.endpointConfigVersion}',
+            ),
+          ),
+        ]),
         Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
           child: Text(
             AppStrings.settingsDiagHint,
             style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
@@ -164,10 +206,30 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
     );
   }
 
+  /// 免责副标题：未同意/已同意当前版/曾同意旧版三种语义
+  ///（此前恒显「1 → v1」，版本相等时文案无意义）。
+  String _disclaimerSubtitle(int version) {
+    if (version <= 0) return AppStrings.settingsDisclaimerNone;
+    if (version == kCurrentDisclaimerVersion) {
+      return '${AppStrings.settingsDisclaimerVersionPrefix}v$version';
+    }
+    return '${AppStrings.settingsDisclaimerVersionPrefix}'
+        'v$version → v$kCurrentDisclaimerVersion';
+  }
+
   Widget _header(BuildContext context, String title) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
       child: Text(title, style: Theme.of(context).textTheme.titleSmall),
+    );
+  }
+
+  /// 分组容器（主题 H：卡片化分组；Card 全局主题已带 surfaceContainerLow
+  /// 底与 12px 圆角）。
+  Widget _group(List<Widget> children) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+      child: Card(child: Column(children: children)),
     );
   }
 

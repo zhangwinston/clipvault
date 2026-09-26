@@ -139,19 +139,40 @@ class _DownloadList extends ConsumerWidget {
     final waitingWifi = wifiOnly && !onWifi;
 
     if (items.isEmpty) {
+      // 空态视觉锚点（主题 F：此前 48px 裸图标+一行字单薄）——
+      // 72px 图标置于 120px primaryContainer 圆底 + CTA 宽度收敛。
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.movie_outlined, size: 48),
-            const SizedBox(height: 12),
-            const Text(AppStrings.dlEmpty),
-            const SizedBox(height: 16),
-            FilledButton.tonalIcon(
-              // 空态行动入口：切回首页开始第一次解析（P1-3）
-              onPressed: () => ref.read(homeTabProvider.notifier).select(0),
-              icon: const Icon(Icons.link),
-              label: const Text(AppStrings.dlEmptyAction),
+            Container(
+              width: 120,
+              height: 120,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.movie_outlined,
+                size: 72,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(AppStrings.dlEmpty,
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 20),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 260),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton.tonalIcon(
+                  // 空态行动入口：切回首页开始第一次解析（P1-3）
+                  onPressed: () => ref.read(homeTabProvider.notifier).select(0),
+                  icon: const Icon(Icons.link),
+                  label: const Text(AppStrings.dlEmptyAction),
+                ),
+              ),
             ),
           ],
         ),

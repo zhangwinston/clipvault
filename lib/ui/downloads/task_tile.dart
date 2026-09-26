@@ -828,13 +828,45 @@ class TaskTile extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 4),
-          Text(
-            '${formatBytes(item.bytesDone)}'
-            '${item.bytesTotal == null ? '' : ' / ${formatBytes(item.bytesTotal!)}'}'
-            '${running ? ' · ${formatSpeed(item.speedBps)} · ${formatEta(item.etaSec)}' : ''}'
-            // 已用时间 = 累计活跃毫秒（P2-4：排队/暂停/冷却等待不计入，
-            // 与同行速率/ETA 口径自洽；随 500ms 遥测回写驱动的列表重建刷新）
-            '${running ? ' · ${AppStrings.labelElapsed} ${formatElapsed(Duration(milliseconds: item.activeMs))}' : ''}',
+          // 遥测分级（主题 B：此前五类信息 12px 单灰平铺，无主次）：
+          // 字节/已用=次要灰；速率=13px onSurface；ETA=primary w600 强调。
+          Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: '${formatBytes(item.bytesDone)}'
+                      '${item.bytesTotal == null ? '' : ' / ${formatBytes(item.bytesTotal!)}'}',
+                ),
+                if (running) ...[
+                  const TextSpan(text: ' · '),
+                  TextSpan(
+                    text: formatSpeed(item.speedBps),
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: scheme.onSurface,
+                    ),
+                  ),
+                  if (item.etaSec != null && item.etaSec! > 0) ...[
+                    const TextSpan(text: ' · '),
+                    TextSpan(
+                      text: formatEta(item.etaSec),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: scheme.primary,
+                      ),
+                    ),
+                  ],
+                  // 已用时间 = 累计活跃毫秒（P2-4：排队/暂停/冷却等待不计入）
+                  const TextSpan(text: ' · '),
+                  TextSpan(
+                    text: '${AppStrings.labelElapsed} '
+                        '${formatElapsed(Duration(milliseconds: item.activeMs))}',
+                  ),
+                ],
+              ],
+            ),
             style: TextStyle(
               fontSize: 12,
               color: scheme.onSurfaceVariant,
@@ -906,28 +938,13 @@ class TaskTile extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
+              visualDensity: VisualDensity.compact,
               tooltip: AppStrings.actionPause,
               onPressed: () => cmds.pause(item.id),
               icon: const Icon(Icons.pause),
             ),
-            IconButton(
-              tooltip: AppStrings.actionCancel,
-              // 取消是相邻易误触的破坏性操作：给出撤销出口
-              //（取消保留 .part，撤销=重试即从断点继续，无损失）。
-              onPressed: () {
-                cmds.cancel(item.id);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text(AppStrings.taskCanceled),
-                    action: SnackBarAction(
-                      label: AppStrings.actionUndo,
-                      onPressed: () => cmds.retry(item.id),
-                    ),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.close),
-            ),
+            const SizedBox(width: 4),
+            _cancelButton(context, cmds),
           ],
         );
       case tbl.DownloadStatus.paused:
@@ -935,6 +952,7 @@ class TaskTile extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
+              visualDensity: VisualDensity.compact,
               tooltip: AppStrings.actionResume,
               // 冷却中被系统暂停的任务点「继续」纹丝不动（_pump 被冷却挡住）：
               // 给即时反馈说明将自动恢复，避免看起来像功能失效。
@@ -948,51 +966,55 @@ class TaskTile extends StatelessWidget {
               },
               icon: const Icon(Icons.play_arrow),
             ),
-            IconButton(
-              tooltip: AppStrings.actionCancel,
-              onPressed: () {
-                cmds.cancel(item.id);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text(AppStrings.taskCanceled),
-                    action: SnackBarAction(
-                      label: AppStrings.actionUndo,
-                      onPressed: () => cmds.retry(item.id),
-                    ),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.close),
-            ),
+            const SizedBox(width: 4),
+            _cancelButton(context, cmds),
           ],
         );
       case tbl.DownloadStatus.queued:
-        return IconButton(
-          tooltip: AppStrings.actionCancel,
-          onPressed: () {
-            cmds.cancel(item.id);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: const Text(AppStrings.taskCanceled),
-                action: SnackBarAction(
-                  label: AppStrings.actionUndo,
-                  onPressed: () => cmds.retry(item.id),
-                ),
-              ),
-            );
-          },
-          icon: const Icon(Icons.close),
-        );
+        return _cancelButton(context, cmds);
       case tbl.DownloadStatus.failed:
       case tbl.DownloadStatus.canceled:
-        return IconButton(
-          tooltip: AppStrings.actionRetry,
-          onPressed: () => cmds.retry(item.id),
-          icon: const Icon(Icons.refresh),
+        // 重试从裸图标升级为文字按钮（主题 D：点按目标与语义同时放大，
+        // 新手不再需要猜 ⟳ 图标含义）。
+        return Tooltip(
+          message: AppStrings.actionRetry,
+          child: FilledButton.tonalIcon(
+            style: FilledButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              minimumSize: const Size(0, 36),
+              textStyle: const TextStyle(fontSize: 13),
+            ),
+            onPressed: () => cmds.retry(item.id),
+            icon: const Icon(Icons.refresh, size: 18),
+            label: const Text(AppStrings.actionRetry),
+          ),
         );
       default:
         return null;
     }
+  }
+
+  /// 取消按钮（主题 D：破坏性暗示——error 前景色 + 4dp 间距防误触；
+  /// 取消保留 .part，Snackbar 撤销=断点重试无损失）。
+  Widget _cancelButton(BuildContext context, DownloadCommands cmds) {
+    return IconButton(
+      visualDensity: VisualDensity.compact,
+      tooltip: AppStrings.actionCancel,
+      color: Theme.of(context).colorScheme.error,
+      onPressed: () {
+        cmds.cancel(item.id);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(AppStrings.taskCanceled),
+            action: SnackBarAction(
+              label: AppStrings.actionUndo,
+              onPressed: () => cmds.retry(item.id),
+            ),
+          ),
+        );
+      },
+      icon: const Icon(Icons.close),
+    );
   }
 }
 

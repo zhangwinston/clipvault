@@ -1,10 +1,13 @@
 /// 解析中骨架卡片 + 耗时计时器（DESIGN §1.3-#8 / §7.1-1，吸收 P2）。
 ///
-/// - 骨架块模拟预览卡布局（封面/头像/文字行）；
-/// - 计时基于 100ms 周期 tick 计数（非墙钟），widget 测试 pump 即可确定性断言；
-/// - 退避重试轮次可见（「正在重试（2/3）…」），弱网长等待可解释；
-/// - 「取消解析」出口（P0-1：最坏 31s 等待不再锁死用户）；
-/// - 呼吸动画仅用 AnimatedOpacity 循环，零第三方依赖。
+/// 视觉评审主题 F 重做：
+/// - 骨架结构与结果卡（PreviewCard）同构：16:9 封面块在上、头像+文字行在下
+///   （此前上下相反，解析完成瞬间布局跳变）；
+/// - 加载动效从整体透明度呼吸升级为扫光 shimmer（ShaderMask 渐变条扫过，
+///   零第三方依赖）；
+/// - 转圈 24dp 置于状态文字左侧组成标准加载行（此前 16dp 缩在角落存在感趋零）；
+/// - 「取消解析」升级为全宽 OutlinedButton（31s 最坏等待的唯一出口，
+///   此前是右下角小文字链）。
 library;
 
 import 'dart:async';
@@ -34,9 +37,12 @@ class ParseSkeleton extends StatefulWidget {
   State<ParseSkeleton> createState() => _ParseSkeletonState();
 }
 
-class _ParseSkeletonState extends State<ParseSkeleton> {
+class _ParseSkeletonState extends State<ParseSkeleton>
+    with SingleTickerProviderStateMixin {
   int _tickCount = 0;
   Timer? _timer;
+
+  late final AnimationController _shimmer;
 
   @override
   void initState() {
@@ -44,11 +50,16 @@ class _ParseSkeletonState extends State<ParseSkeleton> {
     _timer = Timer.periodic(const Duration(milliseconds: 100), (_) {
       if (mounted) setState(() => _tickCount++);
     });
+    _shimmer = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat();
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _shimmer.dispose();
     super.dispose();
   }
 
@@ -59,69 +70,98 @@ class _ParseSkeletonState extends State<ParseSkeleton> {
     final retrying = widget.retryAttempt > 0;
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 扫光只作用于骨架块（真实控件——状态行/取消钮——不参与）
+          _Shimmer(
+            controller: _shimmer,
+            base: scheme.surfaceContainerHighest,
+            highlight: scheme.surfaceContainerLow,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const _BoneBox(width: 40, height: 40, circular: true),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
+                // 与 PreviewCard 同构：16:9 封面块在上
+                const AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: _Bone(width: double.infinity, height: double.infinity),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
-                      _BoneBox(width: double.infinity, height: 12),
-                      SizedBox(height: 6),
-                      _BoneBox(width: 160, height: 10),
+                    children: [
+                      // 头像圆（32，与 PreviewCard CircleAvatar radius 16 等径）
+                      const _Bone(width: 32, height: 32, circular: true),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            _Bone(width: double.infinity, height: 12),
+                            SizedBox(height: 8),
+                            _Bone(width: 160, height: 10),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            const _BoneBox(width: double.infinity, height: 120),
-            const SizedBox(height: 10),
-            Row(
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            child: Row(
               children: [
+                // 标准加载行：24dp 转圈在文字左侧
+                const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                ),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     retrying
                         ? '${AppStrings.parseRetrying}'
                           '（${widget.retryAttempt}/${widget.maxRetries}）…'
                         : '${AppStrings.parsingInProgress} ${elapsed.toStringAsFixed(1)} s',
-                    style: TextStyle(color: scheme.primary, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                      color: scheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
-                const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
                 ),
               ],
             ),
-            if (widget.onCancel != null) ...[
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
+          ),
+          if (widget.onCancel != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              child: SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 40),
+                    textStyle: const TextStyle(fontSize: 14),
+                  ),
                   onPressed: widget.onCancel,
                   icon: const Icon(Icons.close, size: 16),
                   label: const Text(AppStrings.actionCancelParse),
                 ),
               ),
-            ],
-          ],
-        ),
+            ),
+        ],
       ),
     );
   }
 }
 
-/// 骨架灰块（呼吸透明度）
-class _BoneBox extends StatelessWidget {
-  const _BoneBox({required this.width, required this.height, this.circular = false});
+/// 骨架灰块
+class _Bone extends StatelessWidget {
+  const _Bone({required this.width, required this.height, this.circular = false});
 
   final double width;
   final double height;
@@ -129,52 +169,50 @@ class _BoneBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _Pulse(
-      child: Container(
-        width: width,
-        height: height,
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          borderRadius: circular ? null : BorderRadius.circular(6),
-          shape: circular ? BoxShape.circle : BoxShape.rectangle,
-        ),
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: circular ? null : BorderRadius.circular(10),
+        shape: circular ? BoxShape.circle : BoxShape.rectangle,
       ),
     );
   }
 }
 
-/// 呼吸动画容器
-class _Pulse extends StatefulWidget {
-  const _Pulse({required this.child});
+/// 扫光 shimmer：渐变高亮条随 controller 自左向右扫过子树。
+class _Shimmer extends StatelessWidget {
+  const _Shimmer({
+    required this.controller,
+    required this.base,
+    required this.highlight,
+    required this.child,
+  });
 
+  final AnimationController controller;
+  final Color base;
+  final Color highlight;
   final Widget child;
 
   @override
-  State<_Pulse> createState() => _PulseState();
-}
-
-class _PulseState extends State<_Pulse> with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-      lowerBound: 0.45,
-      upperBound: 1,
-    )..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return FadeTransition(opacity: _controller, child: widget.child);
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        // t: -1 → 2（渐变条从完全在左侧扫到完全在右侧）
+        final t = controller.value * 3 - 1;
+        return ShaderMask(
+          blendMode: BlendMode.srcATop,
+          shaderCallback: (bounds) => LinearGradient(
+            begin: Alignment(t - 0.4, 0),
+            end: Alignment(t + 0.4, 0),
+            colors: [base, highlight, base],
+            stops: const [0.35, 0.5, 0.65],
+          ).createShader(bounds),
+          child: child,
+        );
+      },
+    );
   }
 }
