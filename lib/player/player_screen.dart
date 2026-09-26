@@ -254,7 +254,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   Center(
                     child: Video(
                       controller: controller,
-                      controls: NoVideoControls,
+                      // NoVideoControls 在 media_kit_video 中即 `const = null`
+                      // （dynamic 字面量），strict-casts 下写显式 null 等价且
+                      // 类型干净；语义：不使用自带控制层。
+                      controls: null,
                     ),
                   ),
                 // 拖动进度预览 HUD（目标时间 / 总时长）
