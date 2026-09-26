@@ -22,7 +22,9 @@ dependencies:
 
   # ---- 持久化（DESIGN §9-3：drift 而非 isar/hive；executor 注入设计支持测试内存库）----
   drift: 2.35.0
-  sqlite3_flutter_libs: ^0.5.24
+  # Android/iOS 的 sqlite 原生库自 sqlite3 3.x 起已并入 sqlite3 包本身
+  # 打包（drift 传递依赖）；旧的 sqlite3_flutter_libs 已 EOL
+  # （0.6.0+eol 为空壳标记版本），2026-09 移除。
   shared_preferences: 2.5.5
 
   # ---- 相册保存（DESIGN §9-4：gal —— BSD-3、verified publisher、LocalSend 同款）----

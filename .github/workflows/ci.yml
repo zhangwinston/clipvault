@@ -70,6 +70,9 @@ jobs:
       - name: Release APK
         run: flutter build apk --release
 
+      - name: 原生库清单（可见性：确认 sqlite3/media_kit 等 .so 均已打包）
+        run: unzip -l build/app/outputs/flutter-apk/app-release.apk | grep -E "\.so" | awk '{print $4, "("$1" bytes)"}'
+
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
