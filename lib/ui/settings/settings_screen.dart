@@ -4,6 +4,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:clipvault/core/app_strings.dart';
 import 'package:clipvault/settings/settings_controller.dart';
@@ -13,6 +14,9 @@ import 'package:clipvault/ui/home/home_screen.dart' show endpointConfigRepositor
 
 /// App 版本（诊断展示用；包信息无依赖，随 pubspec 版本手动维护）
 const String kAppVersion = '1.0.0';
+
+/// 源码仓库地址（版本信息点击弹窗展示/复制）。
+const String kRepoUrl = 'https://github.com/zhangwinston/clipvault';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -60,59 +64,12 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
   Widget build(BuildContext context) {
     final settings = widget.settings;
     final scheme = Theme.of(context).colorScheme;
-    // 视觉评审主题 H：分组卡片化（此前裸 ListView 平铺无容器层级）+
-    // 免责副标题版本语义修正 + 并发数滑条改 SegmentedButton。
+    // 分区顺序（用户反馈调整）：偏好 → 缓存 → 权限 → 法律 → 关于——
+    // 高频偏好置顶，低频法律/关于沉底。分组卡片化（视觉评审主题 H）+
+    // 免责副标题版本语义修正 + 并发数 SegmentedButton。
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 8),
       children: [
-        _header(context, AppStrings.settingsSectionLegal),
-        _group([
-          ListTile(
-            leading: const Icon(Icons.gavel_outlined),
-            title: Text(AppStrings.settingsDisclaimerRevisit),
-            subtitle: Text(_disclaimerSubtitle(settings.disclaimerVersion)),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => showDisclaimerDialog(
-              context,
-              // 重看场景：同意则刷新版本记录；拒绝保持原状（首次启动路径才强制退出）
-              onDecline: () {},
-              scenario: DisclaimerScenario.review,
-            ).then((accepted) {
-              if (accepted) {
-                ref.read(settingsControllerProvider.notifier).acceptDisclaimer();
-              }
-            }),
-          ),
-        ]),
-        _header(context, AppStrings.settingsSectionPermission),
-        _group([
-          ListTile(
-            leading: const Icon(Icons.privacy_tip_outlined),
-            title: Text(AppStrings.settingsPermissionTitle),
-            subtitle: Text(AppStrings.settingsPermissionBody),
-          ),
-        ]),
-        _header(context, AppStrings.settingsSectionCache),
-        _group([
-          ListTile(
-            leading: const Icon(Icons.folder_outlined),
-            title: Text(AppStrings.settingsCacheUsage),
-            trailing:
-                Text(_cacheBytes == null ? '--' : formatBytes(_cacheBytes!)),
-          ),
-          const Divider(height: 1, indent: 16, endIndent: 16),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () => _confirmCleanCache(context),
-                icon: const Icon(Icons.cleaning_services_outlined),
-                label: const Text(AppStrings.settingsCacheClean),
-              ),
-            ),
-          ),
-        ]),
         _header(context, AppStrings.settingsSectionPrefs),
         _group([
           ListTile(
@@ -177,12 +134,69 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
                 .setWifiOnly(value),
           ),
         ]),
+        _header(context, AppStrings.settingsSectionCache),
+        _group([
+          ListTile(
+            leading: const Icon(Icons.folder_outlined),
+            title: Text(AppStrings.settingsCacheUsage),
+            trailing:
+                Text(_cacheBytes == null ? '--' : formatBytes(_cacheBytes!)),
+          ),
+          const Divider(height: 1, indent: 16, endIndent: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _confirmCleanCache(context),
+                icon: const Icon(Icons.cleaning_services_outlined),
+                label: const Text(AppStrings.settingsCacheClean),
+              ),
+            ),
+          ),
+        ]),
+        _header(context, AppStrings.settingsSectionPermission),
+        _group([
+          ListTile(
+            leading: const Icon(Icons.privacy_tip_outlined),
+            title: Text(AppStrings.settingsPermissionTitle),
+            subtitle: Text(AppStrings.settingsPermissionBody),
+          ),
+        ]),
+        _header(context, AppStrings.settingsSectionLegal),
+        _group([
+          ListTile(
+            leading: const Icon(Icons.gavel_outlined),
+            title: Text(AppStrings.settingsDisclaimerRevisit),
+            subtitle: Text(_disclaimerSubtitle(settings.disclaimerVersion)),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => showDisclaimerDialog(
+              context,
+              // 重看场景：同意则刷新版本记录；拒绝保持原状（首次启动路径才强制退出）
+              onDecline: () {},
+              scenario: DisclaimerScenario.review,
+            ).then((accepted) {
+              if (accepted) {
+                ref.read(settingsControllerProvider.notifier).acceptDisclaimer();
+              }
+            }),
+          ),
+        ]),
         _header(context, AppStrings.settingsSectionDiag),
         _group([
           ListTile(
             leading: const Icon(Icons.info_outline),
             title: Text(AppStrings.settingsVersion),
-            trailing: const Text(kAppVersion),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(kAppVersion),
+                Icon(Icons.chevron_right,
+                    size: 18, color: scheme.onSurfaceVariant),
+              ],
+            ),
+            // 点击展示仓库链接（用户反馈需求）
+            onTap: () => _showRepoDialog(context),
           ),
           const Divider(height: 1, indent: 16, endIndent: 16),
           ListTile(
@@ -203,6 +217,52 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
           ),
         ),
       ],
+    );
+  }
+
+  /// 版本信息点击弹窗：展示 GitHub 仓库链接（可选中复制）+ 一键复制。
+  Future<void> _showRepoDialog(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text(AppStrings.settingsVersion),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('${AppStrings.appName} v$kAppVersion'),
+            const SizedBox(height: 12),
+            Text(AppStrings.settingsRepoLink),
+            const SizedBox(height: 4),
+            SelectableText(
+              kRepoUrl,
+              style: TextStyle(
+                color: Theme.of(dialogContext).colorScheme.primary,
+                fontSize: 13,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () {
+              Clipboard.setData(const ClipboardData(text: kRepoUrl));
+              Navigator.of(dialogContext).pop();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text(AppStrings.settingsLinkCopied)),
+                );
+              }
+            },
+            icon: const Icon(Icons.copy, size: 16),
+            label: const Text(AppStrings.settingsCopyLink),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text(AppStrings.settingsClose),
+          ),
+        ],
+      ),
     );
   }
 

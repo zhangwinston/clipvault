@@ -115,9 +115,14 @@ void main() {
     // 免责已同意 → 不弹条款
     expect(find.text(AppStrings.disclaimerBody), findsNothing);
 
-    // Tab 切换可用
+    // Tab 切换可用（法律区位于折叠线以下，滚动后可见）
     await tester.tap(find.text(AppStrings.tabSettings));
     await tester.pump();
+    await tester.scrollUntilVisible(
+      find.text(AppStrings.settingsDisclaimerRevisit),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text(AppStrings.settingsDisclaimerRevisit), findsOneWidget);
   });
 

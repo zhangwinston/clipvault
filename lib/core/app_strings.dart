@@ -222,6 +222,12 @@ abstract final class AppStrings {
   static const String settingsEndpointVersion = '解析服务配置';
   static const String settingsDiagHint = '以上信息仅作技术只读展示。';
 
+  /// 版本信息点击弹窗：仓库链接展示与复制。
+  static const String settingsRepoLink = '仓库地址（GitHub）';
+  static const String settingsCopyLink = '复制链接';
+  static const String settingsLinkCopied = '链接已复制';
+  static const String settingsClose = '关闭';
+
   // ---------------- 免责声明（§8.3，版本化）----------------
 
   /// 首启全屏《使用协议》标题。

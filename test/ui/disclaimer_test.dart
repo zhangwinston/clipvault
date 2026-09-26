@@ -245,6 +245,12 @@ void main() {
     // 切到「我的」Tab，点重看入口（不用 pumpAndSettle：下载 Tab 有常驻加载动画）
     await tester.tap(find.text(AppStrings.tabSettings));
     await tester.pump(const Duration(milliseconds: 400));
+    // 分区重排后法律区位于折叠线以下，先滚动到可见
+    await tester.scrollUntilVisible(
+      find.text(AppStrings.settingsDisclaimerRevisit),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text(AppStrings.settingsDisclaimerRevisit), findsOneWidget);
     await tester.tap(find.text(AppStrings.settingsDisclaimerRevisit));
     await tester.pump();
