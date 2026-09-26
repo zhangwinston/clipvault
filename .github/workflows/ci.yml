@@ -67,8 +67,11 @@ jobs:
       - name: 依赖解析
         run: flutter pub get
 
-      - name: Release APK
-        run: flutter build apk --release
+      - name: Release APK（仅 arm64）
+        # --target-platform 才是 ABI 的真开关：gradle 的 ndk.abiFilters
+        # 管不住 Flutter 插件自行塞入的 libflutter/libapp/libmpv（实测
+        # armeabi-v7a 仍整包打入）。用户决策：放弃 32 位老机型，单包。
+        run: flutter build apk --release --target-platform android-arm64
 
       - name: 原生库清单（可见性：确认 sqlite3/media_kit 等 .so 均已打包）
         run: unzip -l build/app/outputs/flutter-apk/app-release.apk | grep -E "\.so" | awk '{print $4, "("$1" bytes)"}'
