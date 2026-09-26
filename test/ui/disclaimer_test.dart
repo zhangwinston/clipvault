@@ -97,7 +97,8 @@ Widget _gateApp({
 Future<void> _pumpGate(WidgetTester tester, {ShareReceiver? shareReceiver}) async {
   await tester.pumpWidget(_gateApp(shareReceiver: shareReceiver));
   await tester.pump(); // 设置异步加载
-  await tester.pump(); // 闸门 post-frame 弹窗
+  await tester.pump(); // 闸门 post-frame 触发（主题 G：弹窗延后 500ms）
+  await tester.pump(const Duration(milliseconds: 600)); // 品牌页 fade-in 后弹窗
 }
 
 void main() {
@@ -210,7 +211,8 @@ void main() {
       parser: parser,
     ));
     await tester.pump(); // 设置异步加载
-    await tester.pump(); // 闸门 post-frame 弹窗
+    await tester.pump(); // 闸门 post-frame 触发
+    await tester.pump(const Duration(milliseconds: 600)); // 弹窗延后 500ms（主题 G）
     await tester.pump(const Duration(milliseconds: 300)); // 分享 initialText 异步链
 
     // 未同意：弹窗在场，主壳未挂载，pending 分享未被消费——零解析请求

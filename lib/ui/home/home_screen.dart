@@ -323,12 +323,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     await ref.read(homeParseControllerProvider.notifier).parse(_input.text);
   }
 
-  Future<void> _pasteFromClipboard() async {
-    final text = await ref.read(clipboardReaderProvider).readText();
-    if (text != null && text.isNotEmpty && mounted) {
-      setState(() => _input.text = text);
+  /// 合并主 CTA（视觉评审主题 G：此前「解析/粘贴」双按钮动线冗余——
+  /// 剪贴板横幅已实现一键粘贴+解析，双按钮与之功能重叠且语义近邻）：
+  /// 输入有内容直接解析；为空则读剪贴板；两者皆空给出可感知反馈
+  /// （此前空输入点「解析」静默无反应）。
+  Future<void> _pasteAndParse() async {
+    var text = _input.text.trim();
+    if (text.isEmpty) {
+      final clip = await ref.read(clipboardReaderProvider).readText();
+      text = (clip ?? '').trim();
+      if (text.isNotEmpty && mounted) {
+        setState(() => _input.text = text);
+      }
     }
+    if (text.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text(AppStrings.homeEmptyInput)),
+      );
+      return;
+    }
+    await ref.read(homeParseControllerProvider.notifier).parse(text);
   }
+
+  // 注：独立「粘贴」按钮已随主题 G 的 CTA 合并移除
+  //（_pasteAndParse 内置剪贴板回退）。
 
   Future<void> _startDownload(VideoVariant variant, String tweetId, TweetMeta tweet) async {
     // 快照 tweetJson（历史页离线渲染，§4.5）：TweetMeta.toJson（§5.1 契约）
@@ -484,11 +503,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
               child: TextField(
                 controller: _input,
-                minLines: 2,
-                maxLines: 4,
+                // 单行 filled 输入（主题 G：两行高输入框 + 双按钮 → 轻输入 + 单 CTA）
                 decoration: InputDecoration(
                   hintText: AppStrings.homeInputHint,
-                  border: const OutlineInputBorder(),
                   suffixIcon: IconButton(
                     tooltip: AppStrings.homeClear,
                     onPressed: () => setState(() => _input.clear()),
@@ -499,25 +516,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              child: Row(
-                children: [
-                  Expanded(
-                    flex: 2,
-                    child: FilledButton.icon(
-                      onPressed: _parseInput,
-                      icon: const Icon(Icons.link),
-                      label: const Text(AppStrings.homeParse),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _pasteFromClipboard,
-                      icon: const Icon(Icons.content_paste),
-                      label: const Text(AppStrings.homePaste),
-                    ),
-                  ),
-                ],
+              child: SizedBox(
+                height: 48,
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _pasteAndParse,
+                  icon: const Icon(Icons.link),
+                  label: const Text(AppStrings.homePasteAndParse),
+                ),
               ),
             ),
             const SizedBox(height: 8),
@@ -605,7 +611,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
-/// 首页空态三步引导卡（P1-3）：非技术用户的「这个 App 怎么用」自我解释。
+/// 首页空态三步引导卡（P1-3 + 视觉评审主题 G 重做）：
+/// 顶部层叠视频帧插画（代码自绘，零资产依赖）建立媒体感与视觉重心，
+/// 三步改编号圆标（此前 18px 图标+文字行无层级），分享提示分隔收底。
 /// 无结果且无最近解析时展示；首次解析成功后由条件自然移除。
 class _HomeGuideCard extends StatelessWidget {
   const _HomeGuideCard();
@@ -615,56 +623,147 @@ class _HomeGuideCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _StackedFramesIllustration(),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.movie_outlined, color: scheme.primary),
-                const SizedBox(width: 8),
                 Text(
                   AppStrings.homeGuideTitle,
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _step(context, Icons.content_copy, AppStrings.homeGuideStep1),
-            const SizedBox(height: 8),
-            _step(context, Icons.search, AppStrings.homeGuideStep2),
-            const SizedBox(height: 8),
-            _step(context, Icons.save_alt, AppStrings.homeGuideStep3),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Icon(Icons.ios_share, size: 16, color: scheme.onSurfaceVariant),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    AppStrings.homeGuideShareHint,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: scheme.onSurfaceVariant,
+                const SizedBox(height: 14),
+                _step(context, 1, AppStrings.homeGuideStep1),
+                const SizedBox(height: 10),
+                _step(context, 2, AppStrings.homeGuideStep2),
+                const SizedBox(height: 10),
+                _step(context, 3, AppStrings.homeGuideStep3),
+                const Divider(height: 24, indent: 4, endIndent: 4),
+                Row(
+                  children: [
+                    Icon(Icons.ios_share,
+                        size: 16, color: scheme.onSurfaceVariant),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        AppStrings.homeGuideShareHint,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _step(BuildContext context, IconData icon, String text) {
+  Widget _step(BuildContext context, int number, String text) {
+    final scheme = Theme.of(context).colorScheme;
     return Row(
       children: [
-        Icon(icon, size: 18, color: Theme.of(context).colorScheme.primary),
-        const SizedBox(width: 10),
+        Container(
+          width: 24,
+          height: 24,
+          decoration: BoxDecoration(
+            color: scheme.primaryContainer,
+            shape: BoxShape.circle,
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            '$number',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: scheme.primary,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
         Expanded(child: Text(text)),
       ],
+    );
+  }
+}
+
+/// 层叠 16:9 视频帧插画（主题 G：三张渐变帧错位层叠 + 中央播放圆钮，
+/// 建立「视频收藏」的产品视觉记忆点；#00696F→#4DD0D9 品牌渐变）。
+class _StackedFramesIllustration extends StatelessWidget {
+  const _StackedFramesIllustration();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    Widget frame(double alpha, {bool front = false}) {
+      return Container(
+        width: 176,
+        height: 99, // 16:9
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              scheme.primary.withValues(alpha: alpha),
+              const Color(0xFF4DD0D9).withValues(alpha: alpha),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(10),
+          border: front
+              ? null
+              : Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      color: scheme.surfaceContainerLow,
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      child: SizedBox(
+        height: 123,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // 背层两张错位帧
+            Transform.translate(
+              offset: const Offset(-22, -6),
+              child: frame(0.25),
+            ),
+            Transform.translate(
+              offset: const Offset(22, 8),
+              child: frame(0.4),
+            ),
+            // 前层帧 + 播放圆钮
+            frame(0.9, front: true),
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.2),
+                    blurRadius: 8,
+                  ),
+                ],
+              ),
+              child: Icon(Icons.play_arrow,
+                  size: 28, color: scheme.primary),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -201,7 +201,7 @@ void main() {
     );
 
     await tester.enterText(find.byType(TextField), 'not-a-valid-url');
-    await tester.tap(find.text(AppStrings.homeParse));
+    await tester.tap(find.text(AppStrings.homePasteAndParse));
     await tester.pump();
 
     expect(find.text(AppStrings.errUrlInvalid), findsOneWidget);
@@ -218,7 +218,7 @@ void main() {
     );
 
     await tester.enterText(find.byType(TextField), _kUrl);
-    await tester.tap(find.text(AppStrings.homeParse));
+    await tester.tap(find.text(AppStrings.homePasteAndParse));
     await tester.pump();
 
     expect(find.byType(ParseSkeleton), findsOneWidget);
@@ -239,7 +239,7 @@ void main() {
     );
 
     await tester.enterText(find.byType(TextField), _kUrl);
-    await tester.tap(find.text(AppStrings.homeParse));
+    await tester.tap(find.text(AppStrings.homePasteAndParse));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
@@ -264,7 +264,7 @@ void main() {
     );
 
     await tester.enterText(find.byType(TextField), _kUrl);
-    await tester.tap(find.text(AppStrings.homeParse));
+    await tester.tap(find.text(AppStrings.homePasteAndParse));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text(AppStrings.qualitySheetTitle), findsOneWidget);
@@ -297,7 +297,7 @@ void main() {
     );
 
     await tester.enterText(find.byType(TextField), _kUrl);
-    await tester.tap(find.text(AppStrings.homeParse));
+    await tester.tap(find.text(AppStrings.homePasteAndParse));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
@@ -326,7 +326,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     await tester.enterText(find.byType(TextField), _kUrl);
-    await tester.tap(find.text(AppStrings.homeParse));
+    await tester.tap(find.text(AppStrings.homePasteAndParse));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text(AppStrings.qualitySheetTitle), findsOneWidget);
@@ -366,7 +366,7 @@ void main() {
     );
 
     await tester.enterText(find.byType(TextField), _kUrl);
-    await tester.tap(find.text(AppStrings.homeParse));
+    await tester.tap(find.text(AppStrings.homePasteAndParse));
     await tester.pump();
     // 第 1 次失败 → 进入退避；骨架持续、无错误视图
     expect(attempts, 1);
@@ -406,7 +406,7 @@ void main() {
     );
 
     await tester.enterText(find.byType(TextField), _kUrl);
-    await tester.tap(find.text(AppStrings.homeParse));
+    await tester.tap(find.text(AppStrings.homePasteAndParse));
     await tester.pump(const Duration(milliseconds: 700));
 
     expect(attempts, 1);
@@ -434,7 +434,7 @@ void main() {
     );
 
     await tester.enterText(find.byType(TextField), _kUrl);
-    await tester.tap(find.text(AppStrings.homeParse));
+    await tester.tap(find.text(AppStrings.homePasteAndParse));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
@@ -464,7 +464,7 @@ void main() {
     );
 
     await tester.enterText(find.byType(TextField), _kUrl);
-    await tester.tap(find.text(AppStrings.homeParse));
+    await tester.tap(find.text(AppStrings.homePasteAndParse));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
@@ -531,7 +531,7 @@ void main() {
     );
 
     await tester.enterText(find.byType(TextField), _kUrl);
-    await tester.tap(find.text(AppStrings.homeParse));
+    await tester.tap(find.text(AppStrings.homePasteAndParse));
     await tester.pump();
 
     // 骨架卡出现且带「取消解析」出口
@@ -564,7 +564,7 @@ void main() {
 
     Future<void> parseOnce() async {
       await tester.enterText(find.byType(TextField), _kUrl);
-      await tester.tap(find.text(AppStrings.homeParse));
+      await tester.tap(find.text(AppStrings.homePasteAndParse));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       // 关闭弹出的 Sheet（无本地化代理时按 icon 定位关闭按钮）
@@ -582,26 +582,39 @@ void main() {
     expect(find.text('测试作者'), findsOneWidget);
   });
 
-  testWidgets('粘贴按钮从剪贴板填充输入框；清空按钮可用', (tester) async {
+  testWidgets('合并 CTA：输入为空时读剪贴板解析并回填；空输入+空剪贴板给反馈；清空可用（主题 G）', (tester) async {
     final parser = FakeTweetParser((_) async => ResolveResult(tweet: _meta(), parserVersion: 'syndication-v1'));
     await _pumpHome(
       tester,
       parser: parser,
-      reader: FakeClipboardReader([_kUrl, null]),
+      reader: FakeClipboardReader([_kUrl, null, null]),
       commands: FakeDownloadCommands(),
     );
 
-    await tester.tap(find.text(AppStrings.homePaste));
+    // 输入为空 → CTA 读剪贴板、回填并解析
+    await tester.tap(find.text(AppStrings.homePasteAndParse));
     await tester.pump();
-    expect(find.byType(TextField).evaluate().single.widget, isA<TextField>());
+    await tester.pump(const Duration(milliseconds: 300));
     final field = tester.widget<TextField>(find.byType(TextField));
     expect(field.controller?.text, _kUrl);
-
-    // 清空按钮
+    expect(parser.requestedIds, contains(_kTweetId));
+    // 关闭弹出的 Sheet
+    final close = find.byIcon(Icons.close);
+    if (close.evaluate().isNotEmpty) {
+      await tester.tap(close.first);
+      await tester.pumpAndSettle();
+    }
+    // 清空输入
     await tester.tap(find.byIcon(Icons.clear));
     await tester.pump();
     final cleared = tester.widget<TextField>(find.byType(TextField));
     expect(cleared.controller?.text, isEmpty);
+
+    // 空输入 + 空剪贴板 → 可感知反馈（不再静默无反应）
+    await tester.tap(find.text(AppStrings.homePasteAndParse));
+    await tester.pump();
+    expect(find.text(AppStrings.homeEmptyInput), findsOneWidget);
+    expect(parser.requestedIds.where((id) => id == _kTweetId).length, 1);
   });
 
   testWidgets('成功解析后最近解析区显示作者与时长', (tester) async {
@@ -614,7 +627,7 @@ void main() {
     );
 
     await tester.enterText(find.byType(TextField), _kUrl);
-    await tester.tap(find.text(AppStrings.homeParse));
+    await tester.tap(find.text(AppStrings.homePasteAndParse));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     // 关闭 Sheet 露出最近解析

@@ -1,8 +1,7 @@
-/// 历史详情页（P1 操作集，DESIGN §4.5 / §7.1-3）：
-/// 播放（PlayerScreen）/ 系统分享 / 保存至相册（常驻入口，文案随入册状态）/ 删除。
-///
-/// [HistoryCommands] 为 UI 命令抽象（测试注入假实现）；
-/// 生产适配 [RepoHistoryCommands]（对 S4 仓库与 S5 相册保存器的签名假设集中于此）。
+/// 历史详情页（P1 操作集，DESIGN §4.5 / §7.1-3；视觉评审主题 E 重排）：
+/// 16:9 封面（此前纯文字卡「视频详情页里没有视频」）+ 元数据 chips +
+/// 播放全宽主 CTA + 分享/保存次级行 + 删除移 AppBar error 图标
+/// （此前删除全宽独占底部，破坏性操作权重高于主 CTA）。
 library;
 
 import 'dart:io';
@@ -111,95 +110,196 @@ class HistoryScreen extends ConsumerWidget {
     final liveRecord = ref.watch(historyDetailProvider(item.id)).value;
     final view = liveRecord == null ? item : mapRecordToTaskItem(liveRecord);
     return Scaffold(
-      appBar: AppBar(title: const Text(AppStrings.dlSectionHistory)),
+      appBar: AppBar(
+        title: const Text(AppStrings.dlSectionHistory),
+        // 删除移 AppBar（主题 E：此前全宽红描边按钮独占页面底部，
+        // 破坏性操作权重高于主 CTA「播放」）
+        actions: [
+          IconButton(
+            tooltip: AppStrings.actionDelete,
+            color: scheme.error,
+            onPressed: () => _confirmDelete(context, commands, view.id),
+            icon: const Icon(Icons.delete_outline),
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(view.title, style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 6),
-                  Text(
-                    '${view.authorName == null ? '' : '${view.authorName} · '}${formatDateTime(view.createdAt)}',
-                    style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 16:9 封面（主题 E：「视频 App 的详情页里要有视频」）；
+                // 高度上限 220：宽屏/平板下不过度放大（AspectRatio 按 16:9
+                // 收窄并居中），手机竖屏不受影响。
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 220),
+                  child: Center(
+                    child: AspectRatio(
+                      aspectRatio: 16 / 9,
+                      child: view.thumbUrl == null
+                          ? ColoredBox(
+                              color: scheme.surfaceContainerHighest,
+                              child: const Center(
+                                  child: Icon(Icons.movie_outlined, size: 40)),
+                            )
+                          : Image.network(
+                              view.thumbUrl!,
+                              cacheWidth: 640,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) => ColoredBox(
+                                color: scheme.surfaceContainerHighest,
+                                child: const Center(
+                                    child: Icon(Icons.broken_image_outlined,
+                                        size: 40)),
+                              ),
+                            ),
+                    ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${view.qualityLabel}'
-                    '${view.bytesTotal == null ? '' : ' · ${formatBytes(view.bytesTotal!)}'}'
-                    '${view.albumSavedAt == null ? ' · ${AppStrings.albumNotSaved}' : ''}'
-                    '${view.filePath == null ? ' · ${AppStrings.fileCleaned}' : ''}',
-                    style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(view.title,
+                          style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 6),
+                      Text(
+                        '${view.authorName == null ? '' : '${view.authorName} · '}'
+                        '${formatDateTime(view.createdAt)}',
+                        style: TextStyle(
+                            fontSize: 12, color: scheme.onSurfaceVariant),
+                      ),
+                      const SizedBox(height: 10),
+                      // 元数据改 chips（此前两行 12px 灰串拼接）
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          _metaChip(
+                            context,
+                            view.qualityLabel,
+                            filled: true,
+                          ),
+                          _metaChip(
+                            context,
+                            view.albumSavedAt == null
+                                ? AppStrings.albumNotSaved
+                                : AppStrings.resaveSucceeded,
+                            filled: view.albumSavedAt != null,
+                          ),
+                          if (view.filePath == null)
+                            _metaChip(context, AppStrings.fileCleaned,
+                                filled: false),
+                          if (view.bytesTotal != null)
+                            _metaChip(context, formatBytes(view.bytesTotal!),
+                                filled: false),
+                        ],
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton.icon(
-                // 播放（P1）：文件缺失（已清理/未保留沙盒副本）时禁用
-                onPressed: view.filePath == null
-                    ? null
-                    : () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => PlayerScreen(filePath: view.filePath!),
-                          ),
+          const SizedBox(height: 16),
+          // 主 CTA：播放全宽
+          SizedBox(
+            height: 48,
+            width: double.infinity,
+            child: FilledButton.icon(
+              // 播放（P1）：文件缺失（已清理/未保留沙盒副本）时禁用
+              onPressed: view.filePath == null
+                  ? null
+                  : () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              PlayerScreen(filePath: view.filePath!),
                         ),
-                icon: const Icon(Icons.play_arrow),
-                label: const Text(AppStrings.actionPlay),
+                      ),
+              icon: const Icon(Icons.play_arrow),
+              label: const Text(AppStrings.actionPlay),
+            ),
+          ),
+          const SizedBox(height: 8),
+          // 次级行：分享 / 保存至相册
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: view.filePath == null
+                      ? null
+                      : () async {
+                          final ok =
+                              await commands.shareFile(view.filePath!);
+                          // 按钮存在就必须有可感知的响应：分享面板拉起失败时反馈。
+                          if (!ok && context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                  content: Text(AppStrings.shareUnavailable)),
+                            );
+                          }
+                        },
+                  icon: const Icon(Icons.share, size: 18),
+                  label: const Text(AppStrings.actionShare),
+                ),
               ),
-              OutlinedButton.icon(
-                onPressed: view.filePath == null
-                    ? null
-                    : () async {
-                        final ok = await commands.shareFile(view.filePath!);
-                        // 按钮存在就必须有可感知的响应：分享面板拉起失败时反馈。
-                        if (!ok && context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text(AppStrings.shareUnavailable)),
-                          );
-                        }
-                      },
-                icon: const Icon(Icons.share),
-                label: const Text(AppStrings.actionShare),
-              ),
+              const SizedBox(width: 8),
               // 保存至相册：常驻入口（文件在即渲染，albumSavedAt 只影响文案）——
               // 用户在系统相册侧删除后仍可重新保存，兑现「ClipVault 保险库」预期。
-              if (view.filePath != null)
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    final ok = await commands.resaveToGallery(view.id, view.filePath!);
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(ok ? AppStrings.resaveSucceeded : AppStrings.resaveFailed),
+              Expanded(
+                child: view.filePath == null
+                    ? const SizedBox.shrink()
+                    : OutlinedButton.icon(
+                        onPressed: () async {
+                          final ok = await commands.resaveToGallery(
+                              view.id, view.filePath!);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(ok
+                                    ? AppStrings.resaveSucceeded
+                                    : AppStrings.resaveFailed),
+                              ),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.save_alt, size: 18),
+                        label: Text(
+                          view.albumSavedAt == null
+                              ? AppStrings.actionSaveToAlbum
+                              : AppStrings.actionResave,
+                          style: const TextStyle(fontSize: 13),
                         ),
-                      );
-                    }
-                  },
-                  icon: const Icon(Icons.save_alt),
-                  label: Text(view.albumSavedAt == null
-                      ? AppStrings.actionSaveToAlbum
-                      : AppStrings.actionResave),
-                ),
+                      ),
+              ),
             ],
           ),
-          const SizedBox(height: 24),
-          OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(foregroundColor: scheme.error),
-            onPressed: () => _confirmDelete(context, commands, view.id),
-            icon: const Icon(Icons.delete_outline),
-            label: const Text(AppStrings.actionDelete),
-          ),
         ],
+      ),
+    );
+  }
+
+  Widget _metaChip(BuildContext context, String text, {required bool filled}) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: filled ? scheme.primaryContainer : null,
+        borderRadius: BorderRadius.circular(8),
+        border: filled
+            ? null
+            : Border.all(color: scheme.outlineVariant),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 12,
+          color: filled ? scheme.onSecondaryContainer : scheme.onSurfaceVariant,
+        ),
       ),
     );
   }
@@ -218,8 +318,8 @@ class HistoryScreen extends ConsumerWidget {
           // 破坏性操作的确认弹窗：取消占视觉最强位，删除用 error 前景色，
           // 不再把用户推向误删。
           FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text(AppStrings.actionCancel)),
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text(AppStrings.actionCancel)),
           TextButton(
             style: TextButton.styleFrom(
               foregroundColor: Theme.of(dialogContext).colorScheme.error,

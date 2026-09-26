@@ -206,7 +206,9 @@ class _DownloadList extends ConsumerWidget {
           for (final item in failed)
             TaskTile(item: item, commands: commands),
         ]),
-        _Section(title: AppStrings.dlSectionHistory, count: history.length, children: [
+        // 历史区默认折叠（视觉评审主题 H：已完成只增不减，平铺导致页面
+        // 无限增长；折叠后活跃区始终在首屏）
+        _HistorySection(count: history.length, children: [
           for (final item in history)
             TaskTile(
               item: item,
@@ -282,27 +284,91 @@ class _Section extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (children.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: Row(
-            children: [
-              // 分区标题保持独立精确文案（§7.1-3 分区名），计数为辅助信息单独成 Text
-              Text(title, style: Theme.of(context).textTheme.titleSmall),
-              const SizedBox(width: 6),
-              Text(
-                '($count)',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      // 分区呼吸间隔（视觉评审 layout-2：此前区间 0 间距）
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Row(
+              children: [
+                // 分区标题（§7.1-3 分区名保持独立精确文案）
+                Text(title, style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(width: 8),
+                // 计数胶囊徽章（视觉评审主题 H：此前「(N)」灰字）
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: scheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '$count',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: scheme.primary,
+                    ),
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 12),
+                // 标题下分割线的行内延伸（分组边界信号）
+                const Expanded(
+                  child: Divider(height: 1),
+                ),
+              ],
+            ),
           ),
-        ),
+          ...children,
+        ],
+      ),
+    );
+  }
+}
+
+/// 历史分区：ExpansionTile 默认收起（活跃区始终在首屏）。
+class _HistorySection extends StatelessWidget {
+  const _HistorySection({required this.count, required this.children});
+
+  final int count;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    if (children.isEmpty) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    return ExpansionTile(
+      initiallyExpanded: false,
+      tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+      title: Row(
+        children: [
+          Text(AppStrings.dlSectionHistory,
+              style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: scheme.primaryContainer,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: scheme.primary,
+              ),
+            ),
+          ),
+        ],
+      ),
+      children: [
         ...children,
+        const SizedBox(height: 8),
       ],
     );
   }

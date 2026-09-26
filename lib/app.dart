@@ -13,6 +13,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:clipvault/core/app_strings.dart';
 import 'package:clipvault/download/download_task.dart' as dt;
 import 'package:clipvault/settings/settings_controller.dart';
+import 'package:clipvault/ui/common/brand.dart';
 import 'package:clipvault/ui/common/disclaimer_dialog.dart';
 import 'package:clipvault/ui/downloads/downloads_screen.dart';
 import 'package:clipvault/ui/downloads/task_tile.dart'
@@ -177,10 +178,17 @@ class _DisclaimerGateState extends ConsumerState<DisclaimerGate> {
 
   Future<void> _showGate() async {
     if (!mounted) return;
+    // 品牌页 fade-in 后再弹协议（视觉评审主题 G：首帧即弹模态 + 默认
+    // black54 遮罩把首启时刻变成「黑屏弹协议」）。
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    if (!mounted) return;
     final settings = ref.read(settingsControllerProvider).value;
     final accepted = await showDisclaimerDialog(
       context,
       barrierDismissible: false,
+      // 减淡遮罩：品牌页在弹窗后保持可读（默认 Colors.black54 整页压暗）
+      barrierColor:
+          Theme.of(context).colorScheme.scrim.withValues(alpha: 0.32),
       // 从未同意过（版本 0）= 首启；否则是条款升级重弹
       scenario: (settings?.disclaimerVersion ?? 0) == 0
           ? DisclaimerScenario.firstLaunch
@@ -197,7 +205,8 @@ class _DisclaimerGateState extends ConsumerState<DisclaimerGate> {
   }
 }
 
-/// 闸门品牌页：弹窗背景兼首屏自我解释（logo + 三步示意）。
+/// 闸门品牌页：弹窗背景兼首屏自我解释（视觉评审主题 G 升级——
+/// 渐变打底 + 64px 品牌标记 + 三步示意，建立首启仪式感）。
 class _GateBrandPage extends StatelessWidget {
   const _GateBrandPage();
 
@@ -211,37 +220,53 @@ class _GateBrandPage extends StatelessWidget {
             Expanded(child: Text(text)),
           ],
         );
-    return SizedBox.expand(
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.movie_outlined, size: 40, color: scheme.primary),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(AppStrings.appName,
-                          style: Theme.of(context).textTheme.headlineSmall),
-                      Text(AppStrings.gateAppNameSubtitle,
-                          style: TextStyle(
-                              fontSize: 13, color: scheme.onSurfaceVariant)),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 32),
-              step(Icons.content_copy, AppStrings.gateStep1),
-              const SizedBox(height: 16),
-              step(Icons.search, AppStrings.gateStep2),
-              const SizedBox(height: 16),
-              step(Icons.save_alt, AppStrings.gateStep3),
-            ],
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            scheme.primaryContainer,
+            scheme.surface,
+          ],
+        ),
+      ),
+      child: SizedBox.expand(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const BrandMark(size: 64),
+                    const SizedBox(width: 16),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(AppStrings.appName,
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineMedium
+                                ?.copyWith(fontWeight: FontWeight.w700)),
+                        Text(AppStrings.gateAppNameSubtitle,
+                            style: TextStyle(
+                                fontSize: 13,
+                                color: scheme.onSurfaceVariant)),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 36),
+                step(Icons.content_copy, AppStrings.gateStep1),
+                const SizedBox(height: 16),
+                step(Icons.search, AppStrings.gateStep2),
+                const SizedBox(height: 16),
+                step(Icons.save_alt, AppStrings.gateStep3),
+              ],
+            ),
           ),
         ),
       ),

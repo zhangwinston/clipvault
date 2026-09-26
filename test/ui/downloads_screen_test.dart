@@ -226,6 +226,11 @@ void main() {
       historyCommands: historyCommands,
     );
 
+    // 历史区默认折叠（主题 H）：先展开
+    expect(find.text('测试视频推文'), findsNothing);
+    await tester.tap(find.text(AppStrings.dlSectionHistory));
+    await tester.pumpAndSettle();
+
     // 历史行字段：标题 / 清晰度 / 未入相册标识
     expect(find.text('测试视频推文'), findsOneWidget);
     expect(find.textContaining('720p (HD)'), findsWidgets);
@@ -241,8 +246,8 @@ void main() {
     await tester.pump();
     expect(historyCommands.log, contains('resave:9'));
 
-    // 删除：详情页按钮（OutlinedButton）→ 确认弹窗 → 弹窗内 TextButton（error 色）确认
-    await tester.tap(find.widgetWithText(OutlinedButton, AppStrings.actionDelete));
+    // 删除：详情页 AppBar error 图标 → 确认弹窗 → 弹窗内 TextButton（error 色）确认
+    await tester.tap(find.byTooltip(AppStrings.actionDelete));
     await tester.pumpAndSettle();
     expect(find.text(AppStrings.deleteConfirm), findsOneWidget);
     await tester.tap(find.widgetWithText(TextButton, AppStrings.actionDelete));

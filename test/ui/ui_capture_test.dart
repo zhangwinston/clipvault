@@ -372,7 +372,7 @@ void main() {
     await tester.pump();
     // 填入链接并开始解析（悬挂解析器 → 骨架卡持续）
     await tester.enterText(find.byType(TextField), _kUrl);
-    await tester.tap(find.text(AppStrings.homeParse));
+    await tester.tap(find.text(AppStrings.homePasteAndParse));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 1200));
     await expectLater(
@@ -404,7 +404,7 @@ void main() {
       ),
     );
     await tester.enterText(find.byType(TextField), _kUrl);
-    await tester.tap(find.text(AppStrings.homeParse));
+    await tester.tap(find.text(AppStrings.homePasteAndParse));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     await expectLater(
@@ -571,7 +571,8 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
+    // 弹窗延后 500ms（主题 G）+ 弹窗入场动画
+    await tester.pump(const Duration(milliseconds: 700));
     await expectLater(
       find.byType(MaterialApp),
       matchesGoldenFile('goldens/disclaimer_gate.png'),

@@ -110,7 +110,7 @@ void main() {
 
     // 首页主控件就位（输入框 + 解析按钮）
     expect(find.byType(TextField), findsOneWidget);
-    expect(find.text(AppStrings.homeParse), findsOneWidget);
+    expect(find.text(AppStrings.homePasteAndParse), findsOneWidget);
 
     // 免责已同意 → 不弹条款
     expect(find.text(AppStrings.disclaimerBody), findsNothing);
@@ -151,7 +151,7 @@ void main() {
       find.byType(TextField),
       'https://x.com/someone/status/1790637656616943991?s=20',
     );
-    await tester.tap(find.text(AppStrings.homeParse));
+    await tester.tap(find.text(AppStrings.homePasteAndParse));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text(AppStrings.qualitySheetTitle), findsOneWidget);

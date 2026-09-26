@@ -42,6 +42,13 @@ abstract final class AppStrings {
       '粘贴推文链接，如 https://x.com/用户名/status/…';
   static const String homePaste = '粘贴';
   static const String homeParse = '解析';
+
+  /// 合并主 CTA（视觉评审主题 G：双按钮动线冗余 → 单一「粘贴并解析」）。
+  static const String homePasteAndParse = '粘贴并解析';
+
+  /// 输入为空且剪贴板无链接时的反馈（此前静默无反应）。
+  static const String homeEmptyInput = '先复制一条视频链接，或直接粘贴到输入框';
+
   static const String homeClear = '清空输入';
 
   /// 剪贴板 resume 识别横幅（§1.3-#4：PRD「浮窗」升级为内联横幅）。

@@ -33,11 +33,13 @@ Future<bool> showDisclaimerDialog(
   BuildContext context, {
   VoidCallback? onDecline,
   bool barrierDismissible = false,
+  Color? barrierColor,
   DisclaimerScenario scenario = DisclaimerScenario.firstLaunch,
 }) async {
   final accepted = await showDialog<bool>(
     context: context,
     barrierDismissible: barrierDismissible,
+    barrierColor: barrierColor,
     routeSettings: const RouteSettings(name: '/disclaimer'),
     builder: (dialogContext) => PopScope(
       canPop: barrierDismissible,
