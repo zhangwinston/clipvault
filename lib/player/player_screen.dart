@@ -246,8 +246,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     ),
                   )
                 else if (controller != null)
-                  // libmpv 渲染视图（contain 适配，无需外部 AspectRatio）
-                  Center(child: Video(controller: controller)),
+                  // libmpv 渲染视图（contain 适配，无需外部 AspectRatio）。
+                  // controls 必须显式关闭：Video 默认携带 AdaptiveVideoControls
+                  // （Material 白色进度条 + 圆形播放按钮），与本页自绘控件层
+                  // 双层叠加；且外层手势拦截点击，自带层的自动隐藏永不触发，
+                  // 表现为「白色进度条与按钮常驻遮挡画面」。
+                  Center(
+                    child: Video(
+                      controller: controller,
+                      controls: NoVideoControls,
+                    ),
+                  ),
                 // 拖动进度预览 HUD（目标时间 / 总时长）
                 if (_seeking)
                   Container(
