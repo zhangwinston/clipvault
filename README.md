@@ -101,6 +101,8 @@ token    radix36.replace(/(0+|\.)/g, '')（可为空串，如 id=0）
 | 6 | detectPatterns 模块 | `ClipboardPatternPlugin.swift` MethodChannel 预检只探不取，规避 iOS 粘贴横幅；**真机验证前保持兜底路径** | §8.2 |
 | 7 | PiP | Android 嵌画 / iOS AVPictureInPictureController；**真机验证前隐藏入口** | §4.5 |
 | 8 | 后台保活行为 | 锁屏中断但断点可续；iOS ~30s 宽限自动续传 | §4.3 |
+| 9 | iOS 剪贴板 changeCount 通道（2026-09-26 新增） | `AppDelegate.swift` 的 `clipvault/clipboard` 通道（UX P1-2 根治：内容未变不读文本 → 不触发系统粘贴横幅）；验证通道注册、编译与「未变化时不弹横幅」行为（本机无 macOS 未验证，随 CI IPA 构建回归） | UX-REVIEW P1-2 |
+| 10 | sqlite3_flutter_libs EOL 迁移（2026-09-26 挂账） | 该包已 EOL：正确迁移是移除 `0.5.42`、依赖 sqlite3 3.x native assets 分发原生库（`0.6.0+eol` 为空壳版本，**勿直接升**）；库缺失表现为运行时 dlopen 崩溃而非构建失败，必须真机验证 DB 读写后再合入 | 依赖 |
 
 补装步骤建议：Android Studio（含 JDK 17 + SDK 34+）→ `flutter doctor` 全绿 → 先跑第 1/2/4 项（P0 范围），P1 项随里程碑补。
 
