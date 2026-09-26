@@ -186,9 +186,24 @@ jobs:
           > 本 release 随 main 每次推送滚动更新：标签 \`continuous\` 始终指向最新构建，历史版本请到 [Actions](https://github.com/zhangwinston/clipvault/actions) 构建产物区。"
           # 滚动标签：删除旧 release+tag 后在当前提交重建，保证 continuous 指向最新
           # （本作业无 checkout，gh 需 --repo 显式指定仓库而非从 git 远端推断）
+          # 重试 ×3：GitHub API 偶发瞬时 403「Resource not accessible by
+          # integration」（2026-09-26 实测：同配置同仓库，上一次成功、下一次
+          # 失败、再下一次成功——API 侧抖动，等待后重试即恢复）
           REPO="${{ github.repository }}"
-          gh release delete continuous --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
-          gh release create continuous clipvault-android.apk clipvault-ios-unsigned.ipa \
-            --repo "$REPO" \
-            --title "持续集成构建（continuous）" \
-            --notes "$NOTES" --prerelease --target "$GITHUB_SHA"
+          ok=0
+          for i in 1 2 3; do
+            gh release delete continuous --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
+            if gh release create continuous clipvault-android.apk clipvault-ios-unsigned.ipa \
+              --repo "$REPO" \
+              --title "持续集成构建（continuous）" \
+              --notes "$NOTES" --prerelease --target "$GITHUB_SHA"; then
+              ok=1
+              break
+            fi
+            echo "release 创建第 $i 次失败，$((i * 15)) 秒后重试"
+            sleep $((i * 15))
+          done
+          if [ "$ok" != "1" ]; then
+            echo "release 创建重试耗尽（若持续失败请检查仓库 Actions 权限设置）"
+            exit 1
+          fi
