@@ -64,6 +64,20 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
+      # media_kit 的 gradle 硬编码下载全部 4 个 ABI 的 libmpv jar（~40MB，
+      # 无上游开关；MD5 校验后复用）+ gradle 依赖本身也每次重拉——
+      # 缓存这三处，命中后 Android 作业显著提速。
+      - name: 缓存 gradle 依赖与 media_kit libmpv jar
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.pub-cache/hosted/pub.dev/media_kit_libs_android_video-*/android/build
+          key: android-gradle-${{ runner.os }}-${{ hashFiles('pubspec.lock', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            android-gradle-${{ runner.os }}-
+
       - name: 依赖解析
         run: flutter pub get
 
