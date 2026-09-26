@@ -38,7 +38,7 @@ dependencies:
   receive_sharing_intent: 1.9.0
 
   # ---- 系统分享外发（历史页分享按钮；替代未接原生的自建 MethodChannel）----
-  share_plus: ^12.0.0
+  share_plus: ^13.3.0
 
   # ---- Material 内置文案中文化（§9-12 文案收口：Close tooltip 等）----
   flutter_localizations:
