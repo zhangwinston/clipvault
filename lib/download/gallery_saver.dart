@@ -10,6 +10,7 @@
 ///   历史页出现"重新保存至相册"入口；任务不因拒绝而中断。
 library;
 
+import 'package:flutter/material.dart';
 import 'package:gal/gal.dart';
 
 /// 保存结果分类。
@@ -77,5 +78,67 @@ class GalGallerySaver implements GallerySaver {
       // 任何未知异常都不上抛：沙盒副本仍然有效，历史页提供重存入口。
       return const GallerySaveResult(outcome: GallerySaveOutcome.failed);
     }
+  }
+}
+
+/// 相册权限预解释包装器（P1-8）：首次真正触发系统权限弹窗之前，
+/// 先弹一个应用内说明（为什么需要相册权限、拒绝后的降级路径），
+/// 避免用户在毫无上下文的下载完成瞬间面对系统弹窗习惯性拒绝。
+///
+/// 判定「即将触发系统弹窗」= 当前无相册权限且从未解释过；
+/// 解释标记由调用方持久化（SharedPreferences）。
+class PreExplainGallerySaver implements GallerySaver {
+  PreExplainGallerySaver({
+    required this.inner,
+    required this.contextResolver,
+    required this.hasExplained,
+    required this.markExplained,
+    required this.explainTitle,
+    required this.explainBody,
+    required this.explainConfirm,
+  });
+
+  final GallerySaver inner;
+
+  /// 页面上下文解析（全局 navigatorKey；无可用上下文时跳过解释）。
+  final BuildContext? Function() contextResolver;
+
+  final Future<bool> Function() hasExplained;
+  final Future<void> Function() markExplained;
+
+  /// 弹窗文案（由调用方注入，保持本文件零用户文案依赖）。
+  final String explainTitle;
+  final String explainBody;
+  final String explainConfirm;
+
+  @override
+  Future<GallerySaveResult> saveVideo({
+    required String path,
+    required String album,
+  }) async {
+    try {
+      final needsSystemPrompt = !await Gal.hasAccess(toAlbum: true);
+      final explained = await hasExplained();
+      final context = contextResolver();
+      if (needsSystemPrompt && !explained && context != null && context.mounted) {
+        await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: Text(explainTitle),
+            content: Text(explainBody),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: Text(explainConfirm),
+              ),
+            ],
+          ),
+        );
+        await markExplained();
+      }
+    } catch (_) {
+      // 解释层任何失败都不阻断保存主流程。
+    }
+    return inner.saveVideo(path: path, album: album);
   }
 }

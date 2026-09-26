@@ -3,16 +3,20 @@
 /// - 推文预览卡（头像/昵称/正文两行/时长封面/多视频 Chip）；
 /// - 变体列表按码率降序（上游契约保证降序，此处再防御性排一次）；
 /// - 行模板：`720p (HD)` 主标识 + 副行 `2.18 Mbps · 约 24.5 MB · MP4`；
-/// - 默认高亮最高码率档（P2 可被「省流 720p」偏好改写，由调用方传 initialIndex）；
+/// - 默认高亮档由调用方按偏好计算（preferredVariantIndex 对新视频重匹配，
+///   「省流 720p」切换视频后不再错档）；
 /// - 仅 MP4 档（HLS 已在解析层裁剪，§12.9）；
 /// - 多视频推文：Chip 切换经 [onSwitchVideo] 按视频序号重新解析
-///   （TweetParser.resolve 的 videoIndex 参数）；
+///   （TweetParser.resolve 的 videoIndex 参数）；失败不再静默——
+///   SnackBar 展示七类错误文案，用户知道需要重试；
 /// - 「开始下载」回调交由调用方入队并 toast。
 library;
 
 import 'package:flutter/material.dart';
 import 'package:clipvault/core/app_strings.dart';
+import 'package:clipvault/core/error.dart';
 import 'package:clipvault/parse/models.dart';
+import 'package:clipvault/ui/common/error_views.dart';
 import 'package:clipvault/ui/common/preview_card.dart';
 
 /// 清晰度选择 Sheet 内容（也可直接作为 widget 测试宿主）
@@ -23,6 +27,7 @@ class QualitySheet extends StatefulWidget {
     required this.onStartDownload,
     this.onSwitchVideo,
     this.initialVariantIndex = 0,
+    this.preferredVariantIndex,
   });
 
   final TweetMeta tweet;
@@ -34,6 +39,11 @@ class QualitySheet extends StatefulWidget {
   final Future<ResolveResult> Function(int videoIndex)? onSwitchVideo;
 
   final int initialVariantIndex;
+
+  /// 偏好档位计算（入参为目标视频的变体列表，返回默认高亮索引）：
+  /// 多视频切换后按新视频的档位重新匹配（如「省流 720p」找 720p 档），
+  /// 而非沿用旧视频的索引位置——各视频档位分布不同，同索引会错档。
+  final int Function(List<VideoVariant> variants)? preferredVariantIndex;
 
   @override
   State<QualitySheet> createState() => _QualitySheetState();
@@ -74,19 +84,28 @@ class _QualitySheetState extends State<QualitySheet> {
         setState(() {
           _videoIndex = index;
           _switchedTweet = result.tweet;
-          // 切换视频后回到调用方偏好档（省流 720p 语义同样生效；
-          // 新视频档位更少时钳制到末位）
-          final count = result.tweet.variants.length;
-          _variantIndex = widget.initialVariantIndex.clamp(
-            0,
-            count > 0 ? count - 1 : 0,
-          );
+          // 偏好档位按新视频的变体列表重新匹配（省流 720p 找 720p 档，
+          // 找不到回落 0=最高码率），不再沿用旧索引导致静默错档。
+          final variants = result.tweet.variants;
+          final preferred = widget.preferredVariantIndex?.call(variants) ?? 0;
+          _variantIndex = variants.isEmpty
+              ? 0
+              : preferred.clamp(0, variants.length - 1);
           _switching = false;
         });
       }
-    } catch (_) {
-      if (mounted) setState(() => _switching = false);
-      // 解析失败（含七类错误）：保持当前视频不变，静默回落
+    } catch (error) {
+      if (mounted) {
+        setState(() => _switching = false);
+        // 切换失败不再静默（用户会以为「没点到」而反复点击）：
+        // 保持当前视频不变，但让失败可见、给出可感知的原因。
+        final message = error is ParseError
+            ? parseErrorMessage(error)
+            : AppStrings.errNetworkTimeout;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
+        );
+      }
     }
   }
 
@@ -208,12 +227,14 @@ class _QualitySheetState extends State<QualitySheet> {
 ///
 /// [initialVariantIndex]：初始高亮档（省流 720p 偏好由调用方按
 /// DESIGN §3.2 计算后传入；缺省 0 = 最高码率档）。
+/// [preferredVariantIndex]：多视频切换后的偏好重匹配函数（见 QualitySheet）。
 Future<void> showQualitySheet(
   BuildContext context, {
   required TweetMeta tweet,
   required void Function(VideoVariant selected, int videoIndex) onStartDownload,
   Future<ResolveResult> Function(int videoIndex)? onSwitchVideo,
   int initialVariantIndex = 0,
+  int Function(List<VideoVariant> variants)? preferredVariantIndex,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -225,6 +246,7 @@ Future<void> showQualitySheet(
         onStartDownload: onStartDownload,
         onSwitchVideo: onSwitchVideo,
         initialVariantIndex: initialVariantIndex,
+        preferredVariantIndex: preferredVariantIndex,
       ),
     ),
   );

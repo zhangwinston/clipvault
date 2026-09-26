@@ -52,7 +52,10 @@ class FakeHistoryCommands implements HistoryCommands {
   }
 
   @override
-  Future<void> shareFile(String filePath) async => log.add('share:$filePath');
+  Future<bool> shareFile(String filePath) async {
+    log.add("share:$filePath");
+    return true;
+  }
 }
 
 String _snapshotJson({String text = '测试视频推文', String thumb = ''}) =>
@@ -65,6 +68,7 @@ TaskItem _item({
   int? bytesTotal = 10 * 1024 * 1024,
   int bytesDone = 5 * 1024 * 1024,
   int speedBps = 1572864,
+  int activeMs = 0,
   int? etaSec = 83,
   String? errorCode,
   String? filePath,
@@ -80,6 +84,7 @@ TaskItem _item({
     bytesTotal: bytesTotal,
     bytesDone: bytesDone,
     speedBps: speedBps,
+    activeMs: activeMs,
     etaSec: etaSec,
     errorCode: errorCode,
     filePath: filePath,
@@ -128,7 +133,9 @@ void main() {
         _item(
           id: 1,
           status: DownloadStatus.running,
-          createdAt: DateTime.now().subtract(const Duration(seconds: 90)),
+          // 净时长口径（P2-4）：排队/暂停等待不计入，仅累计活跃毫秒
+          activeMs: 90 * 1000,
+          createdAt: DateTime.now().subtract(const Duration(minutes: 30)),
         ),
       ],
       commands: commands,
@@ -136,7 +143,8 @@ void main() {
 
     expect(find.text('50%'), findsOneWidget);
     expect(find.textContaining('1.50 MB/s'), findsOneWidget);
-    // 已用时间与速率/ETA 同行（PRD 3.3；createdAt 差值 90s → 已用 1:30）
+    // 已用时间 = 净活跃时长（入队 30 分钟但活跃仅 90s → 已用 1:30，
+    // 不再与速率/ETA 自相矛盾）
     expect(find.textContaining('${AppStrings.labelElapsed} 1:30'), findsOneWidget);
     expect(find.byTooltip(AppStrings.actionPause), findsOneWidget);
     expect(find.byTooltip(AppStrings.actionCancel), findsOneWidget);
@@ -194,7 +202,8 @@ void main() {
     // Stream.value 的事件经微任务投递 → AsyncLoading→Data 需再一帧重建
     await tester.pump();
 
-    expect(find.text(AppStrings.cooldownNotice), findsOneWidget);
+    // 倒计时形态（「触发限速，约 N 秒后自动继续」）
+    expect(find.textContaining(AppStrings.cooldownNoticePrefix), findsOneWidget);
   });
 
   testWidgets('历史条目展示字段，进入详情可重存（albumSavedAt 空）与删除', (tester) async {
@@ -222,21 +231,21 @@ void main() {
     expect(find.textContaining('720p (HD)'), findsWidgets);
     expect(find.textContaining(AppStrings.albumNotSaved), findsOneWidget);
 
-    // 进入详情 → 重存入口可见并回调
+    // 进入详情 → 保存入口可见（未保存过 → 「保存至相册」）并回调
     await tester.tap(find.byType(TaskTile));
     await tester.pumpAndSettle();
     expect(find.byType(HistoryScreen), findsOneWidget);
-    expect(find.text(AppStrings.actionResave), findsOneWidget);
+    expect(find.text(AppStrings.actionSaveToAlbum), findsOneWidget);
 
-    await tester.tap(find.text(AppStrings.actionResave));
+    await tester.tap(find.text(AppStrings.actionSaveToAlbum));
     await tester.pump();
     expect(historyCommands.log, contains('resave:9'));
 
-    // 删除：详情页按钮（OutlinedButton）→ 确认弹窗 → 弹窗内 FilledButton 确认
+    // 删除：详情页按钮（OutlinedButton）→ 确认弹窗 → 弹窗内 TextButton（error 色）确认
     await tester.tap(find.widgetWithText(OutlinedButton, AppStrings.actionDelete));
     await tester.pumpAndSettle();
     expect(find.text(AppStrings.deleteConfirm), findsOneWidget);
-    await tester.tap(find.widgetWithText(FilledButton, AppStrings.actionDelete));
+    await tester.tap(find.widgetWithText(TextButton, AppStrings.actionDelete));
     await tester.pumpAndSettle();
     expect(historyCommands.log, contains('delete:9'));
   });

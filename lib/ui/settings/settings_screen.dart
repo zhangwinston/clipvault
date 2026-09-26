@@ -74,6 +74,7 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
             context,
             // 重看场景：同意则刷新版本记录；拒绝保持原状（首次启动路径才强制退出）
             onDecline: () {},
+            scenario: DisclaimerScenario.review,
           ).then((accepted) {
             if (accepted) ref.read(settingsControllerProvider.notifier).acceptDisclaimer();
           }),
@@ -93,15 +94,7 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: OutlinedButton.icon(
-            onPressed: () async {
-              await ref.read(settingsControllerProvider.notifier).clearCache();
-              await _refreshCache();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text(AppStrings.settingsCacheCleaned)),
-                );
-              }
-            },
+            onPressed: () => _confirmCleanCache(context),
             icon: const Icon(Icons.cleaning_services_outlined),
             label: const Text(AppStrings.settingsCacheClean),
           ),
@@ -176,5 +169,53 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
       child: Text(title, style: Theme.of(context).textTheme.titleSmall),
     );
+  }
+
+  /// 清理缓存前置确认（P0：此操作实际删除视频本地副本，必须列明影响）。
+  Future<void> _confirmCleanCache(BuildContext context) async {
+    final notifier = ref.read(settingsControllerProvider.notifier);
+    final stats = await notifier.cacheStats();
+    if (!context.mounted) return;
+    if (stats.totalBytes <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text(AppStrings.settingsCacheEmpty)),
+      );
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text(AppStrings.settingsCacheCleanConfirmTitle),
+        content: Text(
+          '${AppStrings.settingsCacheCleanConfirmPrefix}'
+          '${stats.fileCount}'
+          '${AppStrings.settingsCacheCleanConfirmMiddle}'
+          '${formatBytes(stats.totalBytes)}'
+          '${AppStrings.settingsCacheCleanConfirmSuffix}',
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text(AppStrings.actionCancel),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(dialogContext).colorScheme.error,
+            ),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text(AppStrings.settingsCacheClean),
+          ),
+        ],
+      ),
+    );
+    if (confirmed ?? false) {
+      await notifier.clearCache();
+      await _refreshCache();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text(AppStrings.settingsCacheCleaned)),
+        );
+      }
+    }
   }
 }

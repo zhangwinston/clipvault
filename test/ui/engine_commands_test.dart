@@ -257,4 +257,78 @@ void main() {
 
     expect(engine.concurrency, 1); // prefs 恢复值覆盖引擎默认 2
   });
+
+  test('启动恢复分流（P0-2）：偏好开启且非 Wi-Fi → 挂起不入引擎；Wi-Fi 恢复补交', () async {
+    final engine = newEngine(_notFound);
+    final connectivity = _FakeConnectivity(false);
+    final commands = EngineDownloadCommands(
+      engine,
+      repo,
+      wifiOnlyEnabled: () => true,
+      connectivity: connectivity,
+    );
+    addTearDown(commands.dispose);
+    addTearDown(() => connectivity.dispose());
+    addTearDown(() => engine.dispose());
+
+    // 预置一条未完成行（模拟上次会话中断遗留）
+    final row = await repo.createTask(DownloadRecordsCompanion.insert(
+      tweetId: '1790637656616943991',
+      variantUrl: 'https://video.twimg.com/x.mp4',
+      contentType: 'mp4',
+      bitrate: 2176000,
+      qualityLabel: '720p (HD)',
+      status: DownloadStatus.queued.name,
+      tweetJson: '{"tweetId":"1790637656616943991"}',
+    ));
+
+    // 蜂窝网络下启动恢复：不入引擎（挂起等待 Wi-Fi，不走流量）
+    await commands.restoreRecords([row]);
+    expect(
+      engine.task(EngineDownloadCommands.engineIdOf(row.id)),
+      isNull,
+    );
+
+    // Wi-Fi 恢复 → 补交引擎（404 立即失败即证明已被调度）
+    connectivity.onWifi = true;
+    connectivity.events.add(true);
+    for (var i = 0; i < 10; i++) {
+      await _pumpEventQueue();
+    }
+    final task = engine.task(EngineDownloadCommands.engineIdOf(row.id));
+    expect(task?.isSettled, isTrue);
+    expect(task?.failureKind, dt.DownloadFailureKind.permanent);
+  });
+
+  test('启动恢复分流（P0-2）：Wi-Fi 可用 → 直接交引擎续传', () async {
+    final engine = newEngine(_notFound);
+    final connectivity = _FakeConnectivity(true);
+    final commands = EngineDownloadCommands(
+      engine,
+      repo,
+      wifiOnlyEnabled: () => true,
+      connectivity: connectivity,
+    );
+    addTearDown(commands.dispose);
+    addTearDown(() => connectivity.dispose());
+    addTearDown(() => engine.dispose());
+
+    final row = await repo.createTask(DownloadRecordsCompanion.insert(
+      tweetId: '1790637656616943992',
+      variantUrl: 'https://video.twimg.com/x.mp4',
+      contentType: 'mp4',
+      bitrate: 832000,
+      qualityLabel: '480p (SD)',
+      status: DownloadStatus.queued.name,
+      tweetJson: '{"tweetId":"1790637656616943992"}',
+    ));
+
+    await commands.restoreRecords([row]);
+    for (var i = 0; i < 10; i++) {
+      await _pumpEventQueue();
+    }
+    // 404 立即失败即证明已交引擎调度（而非被挂起）
+    final task = engine.task(EngineDownloadCommands.engineIdOf(row.id));
+    expect(task?.isSettled, isTrue);
+  });
 }

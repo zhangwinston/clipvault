@@ -6,7 +6,6 @@
 library;
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -14,7 +13,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:clipvault/app.dart';
 import 'package:clipvault/data/history_repository.dart';
 import 'package:clipvault/data/tables.dart';
-import 'package:clipvault/download/download_task.dart' as dt;
 import 'package:clipvault/settings/settings_controller.dart';
 import 'package:clipvault/ui/downloads/task_tile.dart';
 
@@ -31,7 +29,11 @@ void main() {
       cacheStoreProvider.overrideWith((ref) {
         final repo = ref.watch(historyRepositoryProvider);
         return RepositoryCacheStore(
-          stats: () async => (await repo.computeCacheStats()).totalBytes,
+          sizeBytes: () async => (await repo.computeCacheStats()).totalBytes,
+          detailedStats: () async {
+            final s = await repo.computeCacheStats();
+            return (fileCount: s.fileCount, totalBytes: s.totalBytes);
+          },
           cleaner: () => _cleanCacheFiles(repo),
         );
       }),
@@ -53,9 +55,10 @@ void _capImageCache() {
 
 /// 启动恢复装配（§4.5）：
 /// recoverOnStartup 只读扫描全部未完成记录（queued/running/paused，
-/// 不按 .part 存在性过滤），映射为引擎任务（id 约定 rec_{rowId}）后交
-/// 引擎断点续传——.part 缺失/排队未落盘的记录由引擎归零重下，不会遗留
-/// 永不被调度的僵尸行。
+/// 不按 .part 存在性过滤），交命令层分流（P0-2 修复）：
+/// 仅 Wi-Fi 偏好开启且当前非 Wi-Fi → 挂起等待 Wi-Fi（与运行时同一语义），
+/// 其余交引擎断点续传——.part 缺失/排队未落盘的记录由引擎归零重下，
+/// 不会遗留永不被调度的僵尸行，也不会重启即在蜂窝网络直接开跑。
 Future<void> _bootstrapRecovery(ProviderContainer container) async {
   try {
     // 免责声明门禁（§8.3 版本化重弹）：未同意（含版本升级重弹）前不恢复
@@ -77,68 +80,45 @@ Future<void> _bootstrapRecovery(ProviderContainer container) async {
     await released.future;
     sub.close();
 
-    final engine = container.read(downloadEngineProvider);
+    final commands = container.read(downloadCommandsProvider);
     final repo = container.read(historyRepositoryProvider);
     final recovered = await repo.recoverOnStartup(onRequeue: (_) {});
-    final tasks = <dt.DownloadTask>[
-      for (final r in recovered)
-        dt.DownloadTask(
-          id: EngineDownloadCommands.engineIdOf(r.id),
-          tweetId: r.tweetId,
-          variantUrl: r.variantUrl,
-          contentType: r.contentType,
-          bitrate: r.bitrate,
-          qualityLabel: r.qualityLabel,
-          width: r.width,
-          height: r.height,
-          status: _engineStatusOf(r.status),
-          bytesDone: r.bytesDone,
-          bytesTotal: r.bytesTotal,
-          filePath: r.filePath,
-          partPath: r.partPath,
-          tweetJson: _decodeSnapshot(r.tweetJson),
-          createdAt: r.createdAt,
-        ),
-    ];
-    await engine.restoreFrom(tasks);
+    await restoreDownloadRecords(commands, recovered);
   } catch (_) {
     // 恢复失败不阻断启动（下次启动仍可恢复）
   }
 }
 
-/// 记录状态串 → 引擎侧枚举（两侧枚举同名；未知回落 queued）
-dt.DownloadStatus _engineStatusOf(String name) {
-  for (final s in dt.DownloadStatus.values) {
-    if (s.name == name) return s;
-  }
-  return dt.DownloadStatus.queued;
-}
-
-Map<String, Object?>? _decodeSnapshot(String raw) {
-  try {
-    final decoded = jsonDecode(raw);
-    return decoded is Map<String, Object?> ? decoded : null;
-  } catch (_) {
-    return null;
-  }
-}
-
 /// 仓库缓存适配（生产；测试默认用 EmptyCacheStore）
 class RepositoryCacheStore implements CacheStore {
-  RepositoryCacheStore({required this.stats, required this.cleaner});
+  RepositoryCacheStore({
+    required Future<int> Function() sizeBytes,
+    required this.cleaner,
+    this.detailedStats,
+  }) : _sizeBytesFn = sizeBytes;
 
-  final Future<int> Function() stats;
+  final Future<int> Function() _sizeBytesFn;
   final Future<void> Function() cleaner;
 
+  /// 精确统计（文件数 + 字节数），供清理确认弹窗列明实际影响。
+  final Future<({int fileCount, int totalBytes})> Function()? detailedStats;
+
   @override
-  Future<int> sizeBytes() => stats();
+  Future<int> sizeBytes() => _sizeBytesFn();
+
+  @override
+  Future<({int fileCount, int totalBytes})> stats() async {
+    if (detailedStats != null) return detailedStats!();
+    return (fileCount: 0, totalBytes: await _sizeBytesFn());
+  }
 
   @override
   Future<void> clear() => cleaner();
 }
 
 /// 清理沙盒缓存文件（转正 + .part），记录行保留（历史元数据仍在，
-/// needsResave/离线渲染不依赖文件存在）。
+/// needsResave/离线渲染不依赖文件存在），但行的 filePath/partPath 置空——
+/// 否则会遗留「播放必报错 / 重存必失败」的死入口（P0-4 修复）。
 ///
 /// 仅处理已终结行（completed/failed/canceled）的文件：未完成行
 /// （queued/running/paused）的 .part 是活动任务的断点进度，删除会使
@@ -154,13 +134,24 @@ Future<void> _cleanCacheFiles(HistoryRepository repo) async {
   for (final row in rows) {
     final status = tryParseDownloadStatus(row.status);
     if (status == null || !cleanable.contains(status)) continue;
+    var deletedAny = false;
     for (final path in [row.filePath, row.partPath]) {
       if (path == null || path.isEmpty) continue;
       try {
         final file = File(path);
-        if (await file.exists()) await file.delete();
+        if (await file.exists()) {
+          await file.delete();
+          deletedAny = true;
+        }
       } catch (_) {
         // 单文件清理失败继续（占用/权限）
+      }
+    }
+    if (deletedAny || row.filePath != null || row.partPath != null) {
+      try {
+        await repo.clearFilePaths(row.id);
+      } catch (_) {
+        // 路径清空失败容忍（下次清理再收敛）
       }
     }
   }

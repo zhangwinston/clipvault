@@ -2,6 +2,8 @@
 ///
 /// - 骨架块模拟预览卡布局（封面/头像/文字行）；
 /// - 计时基于 100ms 周期 tick 计数（非墙钟），widget 测试 pump 即可确定性断言；
+/// - 退避重试轮次可见（「正在重试（2/3）…」），弱网长等待可解释；
+/// - 「取消解析」出口（P0-1：最坏 31s 等待不再锁死用户）；
 /// - 呼吸动画仅用 AnimatedOpacity 循环，零第三方依赖。
 library;
 
@@ -12,7 +14,21 @@ import 'package:clipvault/core/app_strings.dart';
 
 /// 解析等待骨架卡片
 class ParseSkeleton extends StatefulWidget {
-  const ParseSkeleton({super.key});
+  const ParseSkeleton({
+    super.key,
+    this.retryAttempt = 0,
+    this.maxRetries = 3,
+    this.onCancel,
+  });
+
+  /// 当前网络退避重试轮次（1 起；0 = 首次尝试）。
+  final int retryAttempt;
+
+  /// 重试上限（与解析退避策略一致，默认 3）。
+  final int maxRetries;
+
+  /// 取消解析回调（null 时不显示取消按钮）。
+  final VoidCallback? onCancel;
 
   @override
   State<ParseSkeleton> createState() => _ParseSkeletonState();
@@ -40,6 +56,7 @@ class _ParseSkeletonState extends State<ParseSkeleton> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final elapsed = (_tickCount * 100) / 1000.0;
+    final retrying = widget.retryAttempt > 0;
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Padding(
@@ -70,7 +87,10 @@ class _ParseSkeletonState extends State<ParseSkeleton> {
               children: [
                 Expanded(
                   child: Text(
-                    '${AppStrings.parsingInProgress} ${elapsed.toStringAsFixed(1)} s',
+                    retrying
+                        ? '${AppStrings.parseRetrying}'
+                          '（${widget.retryAttempt}/${widget.maxRetries}）…'
+                        : '${AppStrings.parsingInProgress} ${elapsed.toStringAsFixed(1)} s',
                     style: TextStyle(color: scheme.primary, fontWeight: FontWeight.w600),
                   ),
                 ),
@@ -81,6 +101,17 @@ class _ParseSkeletonState extends State<ParseSkeleton> {
                 ),
               ],
             ),
+            if (widget.onCancel != null) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: widget.onCancel,
+                  icon: const Icon(Icons.close, size: 16),
+                  label: const Text(AppStrings.actionCancelParse),
+                ),
+              ),
+            ],
           ],
         ),
       ),

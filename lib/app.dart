@@ -5,15 +5,21 @@
 /// - 生产侧 ProviderScope overrides 统一在 main.dart 装配。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:clipvault/core/app_strings.dart';
+import 'package:clipvault/download/download_task.dart' as dt;
 import 'package:clipvault/settings/settings_controller.dart';
 import 'package:clipvault/ui/common/disclaimer_dialog.dart';
 import 'package:clipvault/ui/downloads/downloads_screen.dart';
+import 'package:clipvault/ui/downloads/task_tile.dart'
+    show downloadEngineProvider, homeTabProvider;
 import 'package:clipvault/ui/home/home_screen.dart';
 import 'package:clipvault/ui/settings/settings_screen.dart';
+import 'package:clipvault/ui/common/navigator_key.dart';
 
 class XdownApp extends ConsumerWidget {
   const XdownApp({super.key});
@@ -21,6 +27,7 @@ class XdownApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp(
+      navigatorKey: navigatorKey,
       onGenerateTitle: (context) => AppStrings.appName,
       // Material 内置文案（Close tooltip / 日期选择器等）走 zh 代理（§9-12 文案收口）
       locale: const Locale('zh'),
@@ -53,7 +60,13 @@ class XdownApp extends ConsumerWidget {
       );
 }
 
-/// 首启免责闸门：未同意（或条款版本升级）→ 强制弹窗（§8.3）
+/// 首启免责闸门：未同意（或条款版本升级）→ 品牌引导页 + 强制弹窗（§8.3）。
+///
+/// P1-1/P2-2 修复：
+/// - 闸门背景不再是白屏，而是 logo + 三步示意品牌页（首屏自我解释）；
+/// - 条款升级重弹时弹窗标题/正文明示「已更新」，老用户不再误判 App 故障；
+/// - 拒绝路径渲染静态说明页承接（iOS 的 SystemNavigator.pop 对未模态呈现
+///   的根 VC 是空操作，「退出失败→白屏上无限重弹」在此收敛为可逃离页面）。
 class DisclaimerGate extends ConsumerStatefulWidget {
   const DisclaimerGate({super.key, required this.child});
 
@@ -65,6 +78,7 @@ class DisclaimerGate extends ConsumerStatefulWidget {
 
 class _DisclaimerGateState extends ConsumerState<DisclaimerGate> {
   bool _dialogShown = false;
+  bool _declined = false;
 
   @override
   Widget build(BuildContext context) {
@@ -77,7 +91,7 @@ class _DisclaimerGateState extends ConsumerState<DisclaimerGate> {
       error: (e, _) =>
           const SizedBox.expand(child: Center(child: Text(AppStrings.errGeneric))),
       data: (settings) {
-        if (settings.needsDisclaimer && !_dialogShown) {
+        if (settings.needsDisclaimer && !_dialogShown && !_declined) {
           _dialogShown = true;
           WidgetsBinding.instance.addPostFrameCallback((_) => _showGate());
         }
@@ -85,7 +99,15 @@ class _DisclaimerGateState extends ConsumerState<DisclaimerGate> {
         // 的分享冷启动消费（initialText → 自动解析）与剪贴板观察者只在
         // 闸门放行后才 initState，杜绝清晰度 Sheet 叠在免责弹窗之上被绕过。
         if (settings.needsDisclaimer) {
-          return const SizedBox.expand();
+          if (_declined) {
+            return _DisclaimerDeclinedPage(
+              onReviewAgain: () => setState(() {
+                _declined = false;
+                _dialogShown = false; // 允许下一帧重新弹窗
+              }),
+            );
+          }
+          return const _GateBrandPage();
         }
         return widget.child;
       },
@@ -94,36 +116,191 @@ class _DisclaimerGateState extends ConsumerState<DisclaimerGate> {
 
   Future<void> _showGate() async {
     if (!mounted) return;
+    final settings = ref.read(settingsControllerProvider).value;
     final accepted = await showDisclaimerDialog(
       context,
       barrierDismissible: false,
+      // 从未同意过（版本 0）= 首启；否则是条款升级重弹
+      scenario: (settings?.disclaimerVersion ?? 0) == 0
+          ? DisclaimerScenario.firstLaunch
+          : DisclaimerScenario.updated,
     );
     if (!mounted) return;
     if (accepted) {
       await ref.read(settingsControllerProvider.notifier).acceptDisclaimer();
     } else {
-      // 不同意即退出（§8.3）；退出失败（测试环境）时保持闸门，下帧重弹
-      setState(() => _dialogShown = false);
+      // 拒绝：不再白屏重弹，转静态说明页（Android 上弹窗默认已尝试退出，
+      // 退出未完成时同样由此页承接）。
+      setState(() => _declined = true);
     }
   }
 }
 
-/// 3 Tab 主壳（首页 / 下载 / 我的）
-class HomeShell extends StatefulWidget {
-  const HomeShell({super.key});
-
-  @override
-  State<HomeShell> createState() => _HomeShellState();
-}
-
-class _HomeShellState extends State<HomeShell> {
-  int _index = 0;
+/// 闸门品牌页：弹窗背景兼首屏自我解释（logo + 三步示意）。
+class _GateBrandPage extends StatelessWidget {
+  const _GateBrandPage();
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    Widget step(IconData icon, String text) => Row(
+          children: [
+            Icon(icon, color: scheme.primary, size: 20),
+            const SizedBox(width: 12),
+            Expanded(child: Text(text)),
+          ],
+        );
+    return SizedBox.expand(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.movie_outlined, size: 40, color: scheme.primary),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(AppStrings.appName,
+                          style: Theme.of(context).textTheme.headlineSmall),
+                      Text(AppStrings.gateAppNameSubtitle,
+                          style: TextStyle(
+                              fontSize: 13, color: scheme.onSurfaceVariant)),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 32),
+              step(Icons.content_copy, AppStrings.gateStep1),
+              const SizedBox(height: 16),
+              step(Icons.search, AppStrings.gateStep2),
+              const SizedBox(height: 16),
+              step(Icons.save_alt, AppStrings.gateStep3),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 拒绝条款后的静态承接页（可逃离，不循环重弹）。
+class _DisclaimerDeclinedPage extends StatelessWidget {
+  const _DisclaimerDeclinedPage({this.onReviewAgain});
+
+  /// 「重新查看协议」回调（回退到品牌页并重新弹窗）。
+  final VoidCallback? onReviewAgain;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.expand(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.lock_outline, size: 40),
+              const SizedBox(height: 16),
+              Text(
+                AppStrings.disclaimerDeclinedTitle,
+                style: Theme.of(context).textTheme.titleMedium,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                AppStrings.disclaimerDeclinedBody,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              if (onReviewAgain != null) ...[
+                const SizedBox(height: 20),
+                FilledButton.tonalIcon(
+                  onPressed: onReviewAgain,
+                  icon: const Icon(Icons.gavel_outlined),
+                  label: const Text(AppStrings.disclaimerReviewAgain),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 3 Tab 主壳（首页 / 下载 / 我的）
+///
+/// - Tab 索引经 homeTabProvider（跨页导航：下载空态「去解析第一个视频」）；
+/// - 订阅引擎任务事件流，下载完成时弹前台通知（P1-8：完成不再无声——
+///   用户在别的 Tab 也能立刻知道结果，入册状态滞后 800ms 再读终态）。
+class HomeShell extends ConsumerStatefulWidget {
+  const HomeShell({super.key});
+
+  @override
+  ConsumerState<HomeShell> createState() => _HomeShellState();
+}
+
+class _HomeShellState extends ConsumerState<HomeShell> {
+  StreamSubscription<dynamic>? _taskSub;
+
+  /// 已通知过完成的任务 id（重试后重新置 false 才会再次通知）。
+  final Map<String, bool> _notifiedCompleted = <String, bool>{};
+
+  @override
+  void initState() {
+    super.initState();
+    final engine = ref.read(downloadEngineProvider);
+    _taskSub = engine.taskEvents.listen(_onTaskEvent);
+  }
+
+  void _onTaskEvent(dt.DownloadTask task) {
+    final wasCompleted = _notifiedCompleted[task.id] ?? false;
+    _notifiedCompleted[task.id] = task.isCompleted;
+    if (!task.isCompleted || wasCompleted) return;
+    // 入册（albumSavedAt）在 completed 事件之后由引擎异步补写：
+    // 稍等终态稳定再读，给出准确的完成文案。
+    Future<void>.delayed(const Duration(milliseconds: 800), () {
+      if (!mounted) return;
+      final finalTask = ref.read(downloadEngineProvider).task(task.id);
+      if (finalTask == null || !finalTask.isCompleted) return;
+      final saved = finalTask.albumSavedAt != null;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(saved
+                ? AppStrings.toastDownloadDone
+                : AppStrings.toastDownloadDoneNoAlbum),
+            action: SnackBarAction(
+              label: AppStrings.actionView,
+              onPressed: () =>
+                  ref.read(homeTabProvider.notifier).select(1),
+            ),
+          ),
+        );
+    });
+  }
+
+  @override
+  void dispose() {
+    _taskSub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final index = ref.watch(homeTabProvider);
     return Scaffold(
       body: IndexedStack(
-        index: _index,
+        index: index,
         children: const [
           HomeScreen(),
           DownloadsScreen(),
@@ -131,8 +308,9 @@ class _HomeShellState extends State<HomeShell> {
         ],
       ),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (value) => setState(() => _index = value),
+        selectedIndex: index,
+        onDestinationSelected: (value) =>
+            ref.read(homeTabProvider.notifier).select(value),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),

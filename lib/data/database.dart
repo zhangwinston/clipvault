@@ -38,11 +38,18 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (m) => m.createAll(),
+        onUpgrade: (m, from, to) async {
+          if (from < 2) {
+            // v2：新增 activeMs（累计活跃毫秒，净时长口径的已用时间）。
+            await m.addColumn(
+                downloadRecords, downloadRecords.activeMs);
+          }
+        },
       );
 }
 

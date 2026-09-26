@@ -1,5 +1,5 @@
 /// 历史详情页（P1 操作集，DESIGN §4.5 / §7.1-3）：
-/// 播放（PlayerScreen）/ 系统分享 / 重新保存至相册（albumSavedAt 为空时）/ 删除。
+/// 播放（PlayerScreen）/ 系统分享 / 保存至相册（常驻入口，文案随入册状态）/ 删除。
 ///
 /// [HistoryCommands] 为 UI 命令抽象（测试注入假实现）；
 /// 生产适配 [RepoHistoryCommands]（对 S4 仓库与 S5 相册保存器的签名假设集中于此）。
@@ -8,8 +8,8 @@ library;
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:clipvault/core/app_strings.dart';
 import 'package:clipvault/data/database.dart' show DownloadRecord;
 import 'package:clipvault/player/player_screen.dart';
@@ -22,8 +22,9 @@ abstract class HistoryCommands {
   /// 重新保存至相册：返回是否成功（失败回落沙盒说明，§4.4）
   Future<bool> resaveToGallery(int id, String filePath);
 
-  /// 系统分享（P1；原生 intent 通道，Step 7 后真机验证）
-  Future<void> shareFile(String filePath);
+  /// 系统分享（share_plus）：返回是否成功（失败由调用方给出可感知反馈，
+  /// 不允许按钮按下毫无反应的静默失效）。
+  Future<bool> shareFile(String filePath);
 }
 
 /// 生产实现：仓库 + 相册保存器 + 分享通道适配（签名假设集中于此）
@@ -71,13 +72,17 @@ class RepoHistoryCommands implements HistoryCommands {
   }
 
   @override
-  Future<void> shareFile(String filePath) async {
-    // P1：原生分享通道（Android intent / iOS activity sheet），原生侧由平台配置补齐
-    const channel = MethodChannel('clipvault/share');
+  Future<bool> shareFile(String filePath) async {
+    // 系统分享（share_plus；此前的自建 MethodChannel 原生侧不存在，
+    // MissingPluginException 被静默吞掉导致按钮按下毫无反应）。
     try {
-      await channel.invokeMethod<void>('shareFile', <String, String>{'path': filePath});
-    } on MissingPluginException {
-      // 未接原生时静默忽略（P1 交付项）
+      await SharePlus.instance.share(
+        ShareParams(files: [XFile(filePath)], title: AppStrings.actionShare),
+      );
+      // 分享面板成功拉起即算成功（用户中途取消不算失败）。
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 }
@@ -126,7 +131,8 @@ class HistoryScreen extends ConsumerWidget {
                   Text(
                     '${view.qualityLabel}'
                     '${view.bytesTotal == null ? '' : ' · ${formatBytes(view.bytesTotal!)}'}'
-                    '${view.albumSavedAt == null ? ' · ${AppStrings.albumNotSaved}' : ''}',
+                    '${view.albumSavedAt == null ? ' · ${AppStrings.albumNotSaved}' : ''}'
+                    '${view.filePath == null ? ' · ${AppStrings.fileCleaned}' : ''}',
                     style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
                   ),
                 ],
@@ -153,12 +159,21 @@ class HistoryScreen extends ConsumerWidget {
               OutlinedButton.icon(
                 onPressed: view.filePath == null
                     ? null
-                    : () => commands.shareFile(view.filePath!),
+                    : () async {
+                        final ok = await commands.shareFile(view.filePath!);
+                        // 按钮存在就必须有可感知的响应：分享面板拉起失败时反馈。
+                        if (!ok && context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text(AppStrings.shareUnavailable)),
+                          );
+                        }
+                      },
                 icon: const Icon(Icons.share),
                 label: const Text(AppStrings.actionShare),
               ),
-              // 重新保存至相册：albumSavedAt 为空且文件在（§4.4 被拒降级路径）
-              if (view.needsResave)
+              // 保存至相册：常驻入口（文件在即渲染，albumSavedAt 只影响文案）——
+              // 用户在系统相册侧删除后仍可重新保存，兑现「ClipVault 保险库」预期。
+              if (view.filePath != null)
                 OutlinedButton.icon(
                   onPressed: () async {
                     final ok = await commands.resaveToGallery(view.id, view.filePath!);
@@ -171,7 +186,9 @@ class HistoryScreen extends ConsumerWidget {
                     }
                   },
                   icon: const Icon(Icons.save_alt),
-                  label: const Text(AppStrings.actionResave),
+                  label: Text(view.albumSavedAt == null
+                      ? AppStrings.actionSaveToAlbum
+                      : AppStrings.actionResave),
                 ),
             ],
           ),
@@ -195,12 +212,18 @@ class HistoryScreen extends ConsumerWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
+        // 文案明示会一并删除本地视频文件（相册副本不受影响）
         content: const Text(AppStrings.deleteConfirm),
         actions: [
-          TextButton(
+          // 破坏性操作的确认弹窗：取消占视觉最强位，删除用 error 前景色，
+          // 不再把用户推向误删。
+          FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
             child: const Text(AppStrings.actionCancel)),
-          FilledButton(
+          TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(dialogContext).colorScheme.error,
+            ),
             onPressed: () => Navigator.of(dialogContext).pop(true),
             child: const Text(AppStrings.actionDelete)),
         ],

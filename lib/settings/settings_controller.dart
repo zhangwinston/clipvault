@@ -76,6 +76,13 @@ class SettingsState {
 /// 缓存占用抽象：生产由持久层适配实现，测试注入假实现（离线）
 abstract class CacheStore {
   Future<int> sizeBytes();
+
+  /// 缓存统计（文件数 + 字节数），供清理确认弹窗列明实际影响。
+  /// 默认实现回落 sizeBytes（文件数未知记 0）；生产侧覆写以给出精确计数。
+  Future<({int fileCount, int totalBytes})> stats() async {
+    return (fileCount: 0, totalBytes: await sizeBytes());
+  }
+
   Future<void> clear();
 }
 
@@ -85,6 +92,10 @@ class EmptyCacheStore implements CacheStore {
 
   @override
   Future<int> sizeBytes() async => 0;
+
+  @override
+  Future<({int fileCount, int totalBytes})> stats() async =>
+      (fileCount: 0, totalBytes: 0);
 
   @override
   Future<void> clear() async {}
@@ -162,6 +173,10 @@ class SettingsController extends AsyncNotifier<SettingsState> {
 
   /// 缓存占用（字节）
   Future<int> cacheBytes() => ref.read(cacheStoreProvider).sizeBytes();
+
+  /// 缓存统计（清理确认弹窗列明影响用）
+  Future<({int fileCount, int totalBytes})> cacheStats() =>
+      ref.read(cacheStoreProvider).stats();
 
   /// 一键清理缓存（P0 手动入口；P2 再挂自动策略）
   Future<void> clearCache() => ref.read(cacheStoreProvider).clear();

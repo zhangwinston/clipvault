@@ -139,6 +139,18 @@ class $DownloadRecordsTable extends DownloadRecords
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _activeMsMeta = const VerificationMeta(
+    'activeMs',
+  );
+  @override
+  late final GeneratedColumn<int> activeMs = GeneratedColumn<int>(
+    'active_ms',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
   static const VerificationMeta _etaSecMeta = const VerificationMeta('etaSec');
   @override
   late final GeneratedColumn<int> etaSec = GeneratedColumn<int>(
@@ -253,6 +265,7 @@ class $DownloadRecordsTable extends DownloadRecords
     bytesTotal,
     bytesDone,
     speedBps,
+    activeMs,
     etaSec,
     filePath,
     partPath,
@@ -360,6 +373,12 @@ class $DownloadRecordsTable extends DownloadRecords
       context.handle(
         _speedBpsMeta,
         speedBps.isAcceptableOrUnknown(data['speed_bps']!, _speedBpsMeta),
+      );
+    }
+    if (data.containsKey('active_ms')) {
+      context.handle(
+        _activeMsMeta,
+        activeMs.isAcceptableOrUnknown(data['active_ms']!, _activeMsMeta),
       );
     }
     if (data.containsKey('eta_sec')) {
@@ -481,6 +500,10 @@ class $DownloadRecordsTable extends DownloadRecords
         DriftSqlType.int,
         data['${effectivePrefix}speed_bps'],
       )!,
+      activeMs: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}active_ms'],
+      )!,
       etaSec: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}eta_sec'],
@@ -563,6 +586,10 @@ class DownloadRecord extends DataClass implements Insertable<DownloadRecord> {
   /// 平滑速率 bps（3 秒滑动窗口）。
   final int speedBps;
 
+  /// 累计活跃毫秒数（仅 running 态累计；排队/暂停/冷却等待不计入）。
+  /// 「已用时间」的净时长口径（PRD 3.3），替代按入队时刻墙钟差值的失真算法。
+  final int activeMs;
+
   /// 预计剩余秒数，未知为 null。
   final int? etaSec;
 
@@ -602,6 +629,7 @@ class DownloadRecord extends DataClass implements Insertable<DownloadRecord> {
     this.bytesTotal,
     required this.bytesDone,
     required this.speedBps,
+    required this.activeMs,
     this.etaSec,
     this.filePath,
     this.partPath,
@@ -633,6 +661,7 @@ class DownloadRecord extends DataClass implements Insertable<DownloadRecord> {
     }
     map['bytes_done'] = Variable<int>(bytesDone);
     map['speed_bps'] = Variable<int>(speedBps);
+    map['active_ms'] = Variable<int>(activeMs);
     if (!nullToAbsent || etaSec != null) {
       map['eta_sec'] = Variable<int>(etaSec);
     }
@@ -675,6 +704,7 @@ class DownloadRecord extends DataClass implements Insertable<DownloadRecord> {
           : Value(bytesTotal),
       bytesDone: Value(bytesDone),
       speedBps: Value(speedBps),
+      activeMs: Value(activeMs),
       etaSec: etaSec == null && nullToAbsent
           ? const Value.absent()
           : Value(etaSec),
@@ -715,6 +745,7 @@ class DownloadRecord extends DataClass implements Insertable<DownloadRecord> {
       bytesTotal: serializer.fromJson<int?>(json['bytesTotal']),
       bytesDone: serializer.fromJson<int>(json['bytesDone']),
       speedBps: serializer.fromJson<int>(json['speedBps']),
+      activeMs: serializer.fromJson<int>(json['activeMs']),
       etaSec: serializer.fromJson<int?>(json['etaSec']),
       filePath: serializer.fromJson<String?>(json['filePath']),
       partPath: serializer.fromJson<String?>(json['partPath']),
@@ -742,6 +773,7 @@ class DownloadRecord extends DataClass implements Insertable<DownloadRecord> {
       'bytesTotal': serializer.toJson<int?>(bytesTotal),
       'bytesDone': serializer.toJson<int>(bytesDone),
       'speedBps': serializer.toJson<int>(speedBps),
+      'activeMs': serializer.toJson<int>(activeMs),
       'etaSec': serializer.toJson<int?>(etaSec),
       'filePath': serializer.toJson<String?>(filePath),
       'partPath': serializer.toJson<String?>(partPath),
@@ -767,6 +799,7 @@ class DownloadRecord extends DataClass implements Insertable<DownloadRecord> {
     Value<int?> bytesTotal = const Value.absent(),
     int? bytesDone,
     int? speedBps,
+    int? activeMs,
     Value<int?> etaSec = const Value.absent(),
     Value<String?> filePath = const Value.absent(),
     Value<String?> partPath = const Value.absent(),
@@ -789,6 +822,7 @@ class DownloadRecord extends DataClass implements Insertable<DownloadRecord> {
     bytesTotal: bytesTotal.present ? bytesTotal.value : this.bytesTotal,
     bytesDone: bytesDone ?? this.bytesDone,
     speedBps: speedBps ?? this.speedBps,
+    activeMs: activeMs ?? this.activeMs,
     etaSec: etaSec.present ? etaSec.value : this.etaSec,
     filePath: filePath.present ? filePath.value : this.filePath,
     partPath: partPath.present ? partPath.value : this.partPath,
@@ -821,6 +855,7 @@ class DownloadRecord extends DataClass implements Insertable<DownloadRecord> {
           : this.bytesTotal,
       bytesDone: data.bytesDone.present ? data.bytesDone.value : this.bytesDone,
       speedBps: data.speedBps.present ? data.speedBps.value : this.speedBps,
+      activeMs: data.activeMs.present ? data.activeMs.value : this.activeMs,
       etaSec: data.etaSec.present ? data.etaSec.value : this.etaSec,
       filePath: data.filePath.present ? data.filePath.value : this.filePath,
       partPath: data.partPath.present ? data.partPath.value : this.partPath,
@@ -852,6 +887,7 @@ class DownloadRecord extends DataClass implements Insertable<DownloadRecord> {
           ..write('bytesTotal: $bytesTotal, ')
           ..write('bytesDone: $bytesDone, ')
           ..write('speedBps: $speedBps, ')
+          ..write('activeMs: $activeMs, ')
           ..write('etaSec: $etaSec, ')
           ..write('filePath: $filePath, ')
           ..write('partPath: $partPath, ')
@@ -879,6 +915,7 @@ class DownloadRecord extends DataClass implements Insertable<DownloadRecord> {
     bytesTotal,
     bytesDone,
     speedBps,
+    activeMs,
     etaSec,
     filePath,
     partPath,
@@ -905,6 +942,7 @@ class DownloadRecord extends DataClass implements Insertable<DownloadRecord> {
           other.bytesTotal == this.bytesTotal &&
           other.bytesDone == this.bytesDone &&
           other.speedBps == this.speedBps &&
+          other.activeMs == this.activeMs &&
           other.etaSec == this.etaSec &&
           other.filePath == this.filePath &&
           other.partPath == this.partPath &&
@@ -929,6 +967,7 @@ class DownloadRecordsCompanion extends UpdateCompanion<DownloadRecord> {
   final Value<int?> bytesTotal;
   final Value<int> bytesDone;
   final Value<int> speedBps;
+  final Value<int> activeMs;
   final Value<int?> etaSec;
   final Value<String?> filePath;
   final Value<String?> partPath;
@@ -951,6 +990,7 @@ class DownloadRecordsCompanion extends UpdateCompanion<DownloadRecord> {
     this.bytesTotal = const Value.absent(),
     this.bytesDone = const Value.absent(),
     this.speedBps = const Value.absent(),
+    this.activeMs = const Value.absent(),
     this.etaSec = const Value.absent(),
     this.filePath = const Value.absent(),
     this.partPath = const Value.absent(),
@@ -974,6 +1014,7 @@ class DownloadRecordsCompanion extends UpdateCompanion<DownloadRecord> {
     this.bytesTotal = const Value.absent(),
     this.bytesDone = const Value.absent(),
     this.speedBps = const Value.absent(),
+    this.activeMs = const Value.absent(),
     this.etaSec = const Value.absent(),
     this.filePath = const Value.absent(),
     this.partPath = const Value.absent(),
@@ -1003,6 +1044,7 @@ class DownloadRecordsCompanion extends UpdateCompanion<DownloadRecord> {
     Expression<int>? bytesTotal,
     Expression<int>? bytesDone,
     Expression<int>? speedBps,
+    Expression<int>? activeMs,
     Expression<int>? etaSec,
     Expression<String>? filePath,
     Expression<String>? partPath,
@@ -1026,6 +1068,7 @@ class DownloadRecordsCompanion extends UpdateCompanion<DownloadRecord> {
       if (bytesTotal != null) 'bytes_total': bytesTotal,
       if (bytesDone != null) 'bytes_done': bytesDone,
       if (speedBps != null) 'speed_bps': speedBps,
+      if (activeMs != null) 'active_ms': activeMs,
       if (etaSec != null) 'eta_sec': etaSec,
       if (filePath != null) 'file_path': filePath,
       if (partPath != null) 'part_path': partPath,
@@ -1051,6 +1094,7 @@ class DownloadRecordsCompanion extends UpdateCompanion<DownloadRecord> {
     Value<int?>? bytesTotal,
     Value<int>? bytesDone,
     Value<int>? speedBps,
+    Value<int>? activeMs,
     Value<int?>? etaSec,
     Value<String?>? filePath,
     Value<String?>? partPath,
@@ -1074,6 +1118,7 @@ class DownloadRecordsCompanion extends UpdateCompanion<DownloadRecord> {
       bytesTotal: bytesTotal ?? this.bytesTotal,
       bytesDone: bytesDone ?? this.bytesDone,
       speedBps: speedBps ?? this.speedBps,
+      activeMs: activeMs ?? this.activeMs,
       etaSec: etaSec ?? this.etaSec,
       filePath: filePath ?? this.filePath,
       partPath: partPath ?? this.partPath,
@@ -1125,6 +1170,9 @@ class DownloadRecordsCompanion extends UpdateCompanion<DownloadRecord> {
     if (speedBps.present) {
       map['speed_bps'] = Variable<int>(speedBps.value);
     }
+    if (activeMs.present) {
+      map['active_ms'] = Variable<int>(activeMs.value);
+    }
     if (etaSec.present) {
       map['eta_sec'] = Variable<int>(etaSec.value);
     }
@@ -1170,6 +1218,7 @@ class DownloadRecordsCompanion extends UpdateCompanion<DownloadRecord> {
           ..write('bytesTotal: $bytesTotal, ')
           ..write('bytesDone: $bytesDone, ')
           ..write('speedBps: $speedBps, ')
+          ..write('activeMs: $activeMs, ')
           ..write('etaSec: $etaSec, ')
           ..write('filePath: $filePath, ')
           ..write('partPath: $partPath, ')
@@ -1223,6 +1272,7 @@ typedef $$DownloadRecordsTableCreateCompanionBuilder =
       Value<int?> bytesTotal,
       Value<int> bytesDone,
       Value<int> speedBps,
+      Value<int> activeMs,
       Value<int?> etaSec,
       Value<String?> filePath,
       Value<String?> partPath,
@@ -1247,6 +1297,7 @@ typedef $$DownloadRecordsTableUpdateCompanionBuilder =
       Value<int?> bytesTotal,
       Value<int> bytesDone,
       Value<int> speedBps,
+      Value<int> activeMs,
       Value<int?> etaSec,
       Value<String?> filePath,
       Value<String?> partPath,
@@ -1324,6 +1375,11 @@ class $$DownloadRecordsTableFilterComposer
 
   ColumnFilters<int> get speedBps => $composableBuilder(
     column: $table.speedBps,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get activeMs => $composableBuilder(
+    column: $table.activeMs,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -1442,6 +1498,11 @@ class $$DownloadRecordsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get activeMs => $composableBuilder(
+    column: $table.activeMs,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get etaSec => $composableBuilder(
     column: $table.etaSec,
     builder: (column) => ColumnOrderings(column),
@@ -1541,6 +1602,9 @@ class $$DownloadRecordsTableAnnotationComposer
   GeneratedColumn<int> get speedBps =>
       $composableBuilder(column: $table.speedBps, builder: (column) => column);
 
+  GeneratedColumn<int> get activeMs =>
+      $composableBuilder(column: $table.activeMs, builder: (column) => column);
+
   GeneratedColumn<int> get etaSec =>
       $composableBuilder(column: $table.etaSec, builder: (column) => column);
 
@@ -1622,6 +1686,7 @@ class $$DownloadRecordsTableTableManager
                 Value<int?> bytesTotal = const Value.absent(),
                 Value<int> bytesDone = const Value.absent(),
                 Value<int> speedBps = const Value.absent(),
+                Value<int> activeMs = const Value.absent(),
                 Value<int?> etaSec = const Value.absent(),
                 Value<String?> filePath = const Value.absent(),
                 Value<String?> partPath = const Value.absent(),
@@ -1644,6 +1709,7 @@ class $$DownloadRecordsTableTableManager
                 bytesTotal: bytesTotal,
                 bytesDone: bytesDone,
                 speedBps: speedBps,
+                activeMs: activeMs,
                 etaSec: etaSec,
                 filePath: filePath,
                 partPath: partPath,
@@ -1668,6 +1734,7 @@ class $$DownloadRecordsTableTableManager
                 Value<int?> bytesTotal = const Value.absent(),
                 Value<int> bytesDone = const Value.absent(),
                 Value<int> speedBps = const Value.absent(),
+                Value<int> activeMs = const Value.absent(),
                 Value<int?> etaSec = const Value.absent(),
                 Value<String?> filePath = const Value.absent(),
                 Value<String?> partPath = const Value.absent(),
@@ -1690,6 +1757,7 @@ class $$DownloadRecordsTableTableManager
                 bytesTotal: bytesTotal,
                 bytesDone: bytesDone,
                 speedBps: speedBps,
+                activeMs: activeMs,
                 etaSec: etaSec,
                 filePath: filePath,
                 partPath: partPath,

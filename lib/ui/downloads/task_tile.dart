@@ -30,6 +30,8 @@ import 'package:clipvault/parse/models.dart';
 import 'package:clipvault/settings/settings_controller.dart';
 import 'package:clipvault/ui/common/error_views.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:clipvault/ui/common/navigator_key.dart';
 
 /// UI 任务展示模型（从 DownloadRecord 映射；tweetJson 快照离线渲染历史，§4.5）
 class TaskItem {
@@ -43,6 +45,7 @@ class TaskItem {
     required this.createdAt,
     this.variantUrl = '',
     this.bytesTotal,
+    this.activeMs = 0,
     this.etaSec,
     this.errorCode,
     this.filePath,
@@ -59,6 +62,9 @@ class TaskItem {
   final int? bytesTotal;
   final int bytesDone;
   final int speedBps;
+
+  /// 累计活跃毫秒（净时长口径的已用时间，仅 running 态累计）。
+  final int activeMs;
   final int? etaSec;
   final String? errorCode;
   final String? filePath;
@@ -135,6 +141,20 @@ abstract class DownloadCommands {
   Future<void> retry(int id);
 }
 
+/// 启动恢复分流入口（P0-2）：经命令层把未完成记录按
+/// 「仅 Wi-Fi 偏好 + 当前连接」分流为交引擎续传 / 挂起等待 Wi-Fi，
+/// 修复重启后绕过偏好直接走蜂窝的缺陷。
+/// 生产实现见 [EngineDownloadCommands.restoreRecords]；假实现无此方法，
+/// 直接跳过（测试环境不执行启动恢复）。
+Future<void> restoreDownloadRecords(
+  DownloadCommands commands,
+  Iterable<DownloadRecord> rows,
+) async {
+  if (commands is EngineDownloadCommands) {
+    await commands.restoreRecords(rows);
+  }
+}
+
 /// 连接类型抽象（仅 Wi-Fi 下载偏好用；生产 connectivity_plus，测试注入假实现）。
 abstract class ConnectivityChecker {
   /// 当前是否处于 Wi-Fi 网络。
@@ -155,6 +175,22 @@ class ConnectivityPlusChecker implements ConnectivityChecker {
       .onConnectivityChanged
       .map((results) => results.contains(ConnectivityResult.wifi));
 }
+
+/// 当前是否处于 Wi-Fi 的观察口（初值 + 变化流）。
+///
+/// 平台插件不可用（widget 测试/桌面）时按「已连接」处理并吞掉后续事件，
+/// 避免把挂起判定建立在一个永远报错的流上。
+final StreamProvider<bool> onWifiProvider = StreamProvider<bool>((ref) async* {
+  final checker = ref.watch(connectivityCheckerProvider);
+  bool current;
+  try {
+    current = await checker.isOnWifi;
+  } catch (_) {
+    current = true;
+  }
+  yield current;
+  yield* checker.onWifiChanged.handleError((_) {});
+});
 
 /// 引擎 ↔ drift 双向适配。
 ///
@@ -280,6 +316,46 @@ class EngineDownloadCommands implements DownloadCommands {
   Future<void> retry(int id) =>
       asyncCall(() => _engine.retry(engineIdOf(id)));
 
+  /// 启动恢复分流（P0-2，经 [restoreDownloadRecords] 调用）：仅 Wi-Fi 偏好开启且当前非 Wi-Fi 时，
+  /// 未完成行挂入 [_heldBack]（与运行时挂起同一语义，Wi-Fi 恢复补交），
+  /// 其余交引擎断点续传。修复此前「恢复路径不读偏好，重启即在蜂窝
+  /// 网络直接开跑」的缺陷。
+  Future<void> restoreRecords(Iterable<DownloadRecord> rows) async {
+    final engineBound = <dt.DownloadTask>[];
+    for (final row in rows) {
+      if (_wifiOnlyEnabled() && !await _connectivity.isOnWifi) {
+        _heldBack.add(row.id);
+        continue;
+      }
+      engineBound.add(_restoreTaskFromRow(row));
+    }
+    if (engineBound.isNotEmpty) {
+      await _engine.restoreFrom(engineBound);
+    }
+  }
+
+  /// 恢复行 → 引擎任务：携带断点续传所需字段
+  /// （bytesDone/bytesTotal/filePath/partPath，引擎按 .part 实长对齐）
+  /// 与净时长累计值（activeMs，跨重启延续）。
+  dt.DownloadTask _restoreTaskFromRow(DownloadRecord row) {
+    return _taskFromRow(row).copyWith(
+      status: engineStatusOf(row.status),
+      bytesDone: row.bytesDone,
+      bytesTotal: row.bytesTotal,
+      activeMs: row.activeMs,
+      filePath: row.filePath,
+      partPath: row.partPath,
+    );
+  }
+
+  /// 记录状态串 → 引擎侧枚举（两侧枚举同名；未知回落 queued）。
+  static dt.DownloadStatus engineStatusOf(String name) {
+    for (final s in dt.DownloadStatus.values) {
+      if (s.name == name) return s;
+    }
+    return dt.DownloadStatus.queued;
+  }
+
   static Future<void> asyncCall(void Function() action) async => action();
 
   /// 补交挂起任务：queued 行交引擎调度；paused 行留观（resume 时再处理）；
@@ -370,6 +446,7 @@ class RepoDownloadStore implements DownloadStore {
             bytesDone: Value(task.bytesDone),
             bytesTotal: Value(task.bytesTotal),
             speedBps: Value(task.speedBps),
+            activeMs: Value(task.activeMs),
             etaSec: Value(task.etaSec),
             filePath: Value(task.filePath),
             partPath: Value(task.partPath),
@@ -469,8 +546,26 @@ final Provider<DownloadEngine> downloadEngineProvider = Provider<DownloadEngine>
   return engine;
 });
 
+/// 相册保存装配（P1-8）：gal 生产实现外包一层权限预解释——
+/// 首次触发系统权限弹窗前先弹应用内说明（拒绝后的降级路径提前告知），
+/// 避免用户在下载完成的瞬间面对无上下文的系统弹窗习惯性拒绝。
+const String _kAlbumExplainedPref = 'album.explained';
+
 final Provider<GallerySaver> gallerySaverProvider =
-    Provider<GallerySaver>((_) => const GalGallerySaver());
+    Provider<GallerySaver>((_) {
+  return PreExplainGallerySaver(
+    inner: const GalGallerySaver(),
+    contextResolver: () => navigatorKey.currentContext,
+    hasExplained: () async =>
+        (await SharedPreferences.getInstance()).getBool(_kAlbumExplainedPref) ??
+        false,
+    markExplained: () async => (await SharedPreferences.getInstance())
+        .setBool(_kAlbumExplainedPref, true),
+    explainTitle: AppStrings.albumExplainTitle,
+    explainBody: AppStrings.albumExplainBody,
+    explainConfirm: AppStrings.albumExplainConfirm,
+  );
+});
 
 /// 连接类型注入点（仅 Wi-Fi 偏好用；测试注入假实现离线断言）
 final Provider<ConnectivityChecker> connectivityCheckerProvider =
@@ -508,6 +603,19 @@ final StreamProvider<DateTime?> coolingProvider =
   });
 });
 
+/// 主壳 Tab 索引（0 首页 / 1 下载 / 2 我的）。
+/// 放在装配文件供跨页导航（如下载 Tab 空态「去解析第一个视频」切回首页）。
+/// Riverpod 3 无 StateProvider，用轻量 Notifier 承载。
+class HomeTabController extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void select(int index) => state = index;
+}
+
+final NotifierProvider<HomeTabController, int> homeTabProvider =
+    NotifierProvider<HomeTabController, int>(HomeTabController.new);
+
 /// drift 记录 → TaskItem 映射（字段与可空性按 DESIGN §5.3）；
 /// 公开供历史详情页 watchById 实时流复用（同源映射，避免两处漂移）。
 TaskItem mapRecordToTaskItem(DownloadRecord r) => TaskItem(
@@ -519,6 +627,7 @@ TaskItem mapRecordToTaskItem(DownloadRecord r) => TaskItem(
       bytesTotal: r.bytesTotal,
       bytesDone: r.bytesDone,
       speedBps: r.speedBps,
+      activeMs: r.activeMs,
       etaSec: r.etaSec,
       errorCode: r.errorCode,
       filePath: r.filePath,
@@ -582,6 +691,8 @@ class TaskTile extends StatelessWidget {
     required this.item,
     this.onOpenDetail,
     this.commands,
+    this.waitingWifi = false,
+    this.cooldownActive = false,
   });
 
   final TaskItem item;
@@ -592,16 +703,35 @@ class TaskTile extends StatelessWidget {
   /// 命令回调来源（空则只读展示，测试/预览用）
   final DownloadCommands? commands;
 
+  /// 仅 Wi-Fi 偏好挂起中（queued 行显示「等待 Wi-Fi 连接」而非「等待队列」）
+  final bool waitingWifi;
+
+  /// 429 全队列冷却进行中（paused 行显示「限速等待中」而非「暂停」）
+  final bool cooldownActive;
+
   @override
   Widget build(BuildContext context) {
     if (item.isHistory) return _historyRow(context);
     return _activeRow(context);
   }
 
+  /// 行内状态副标识：挂起/冷却场景用专属标签，其余按状态映射。
+  String get _statusLabel {
+    if (waitingWifi && item.status == tbl.DownloadStatus.queued) {
+      return AppStrings.waitingWifiLabel;
+    }
+    if (cooldownActive && item.status == tbl.DownloadStatus.paused) {
+      return AppStrings.cooldownPausedLabel;
+    }
+    return item.statusLabel;
+  }
+
   Widget _activeRow(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final ratio = item.progressRatio;
     final percent = ratio == null ? '--' : '${(ratio * 100).toInt()}%';
+    final running = item.status == tbl.DownloadStatus.running;
+    final canceled = item.status == tbl.DownloadStatus.canceled;
     return ListTile(
       leading: _thumb(item.thumbUrl),
       title: Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -609,38 +739,50 @@ class TaskTile extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SizedBox(height: 4),
-          Text('${item.qualityLabel} · ${item.statusLabel}'),
+          Text('${item.qualityLabel} · $_statusLabel'),
           const SizedBox(height: 4),
-          // 百分比与进度条同行独立展示（§7.1-3：百分比是一级遥测信息）
-          Row(
-            children: [
-              Expanded(
-                child: LinearProgressIndicator(value: ratio, minHeight: 4),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                percent,
-                style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
-              ),
-            ],
+          // 百分比与进度条同行独立展示（§7.1-3：百分比是一级遥测信息）；
+          // 合成语义描述供读屏用户一次听懂进度（替代零散文本朗读）。
+          Semantics(
+            label: ratio == null
+                ? null
+                : '已下载百分之${(ratio * 100).toInt()}'
+                    '${item.speedBps > 0 ? '，速率${formatSpeed(item.speedBps)}' : ''}'
+                    '${item.etaSec != null && item.etaSec! > 0 ? '，约剩余${item.etaSec}秒' : ''}',
+            child: Row(
+              children: [
+                Expanded(
+                  child: LinearProgressIndicator(value: ratio, minHeight: 4),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  percent,
+                  style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 4),
           Text(
             '${formatBytes(item.bytesDone)}'
             '${item.bytesTotal == null ? '' : ' / ${formatBytes(item.bytesTotal!)}'}'
-            '${item.status == tbl.DownloadStatus.running ? ' · ${formatSpeed(item.speedBps)} · ${formatEta(item.etaSec)}' : ''}'
-            // 已用时间与速率/ETA 同行（PRD 3.3；按 createdAt 差值计算，
-            // 随进度遥测回写（500ms 节流）驱动的列表重建即时刷新）
-            '${item.status == tbl.DownloadStatus.running ? ' · ${AppStrings.labelElapsed} ${formatElapsed(DateTime.now().difference(item.createdAt))}' : ''}',
+            '${running ? ' · ${formatSpeed(item.speedBps)} · ${formatEta(item.etaSec)}' : ''}'
+            // 已用时间 = 累计活跃毫秒（P2-4：排队/暂停/冷却等待不计入，
+            // 与同行速率/ETA 口径自洽；随 500ms 遥测回写驱动的列表重建刷新）
+            '${running ? ' · ${AppStrings.labelElapsed} ${formatElapsed(Duration(milliseconds: item.activeMs))}' : ''}',
             style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
           ),
-          if (item.isFailed && item.errorCode != null) ...[
+          if (canceled || (item.isFailed && item.errorCode != null)) ...[
             const SizedBox(height: 2),
             Text(
-              item.status == tbl.DownloadStatus.canceled
+              // 用户主动取消不是错误：普通色「已取消」，不用 error 红。
+              canceled
                   ? AppStrings.statusCanceled
                   : downloadErrorMessage(item.errorCode),
-              style: TextStyle(fontSize: 12, color: scheme.error),
+              style: TextStyle(
+                fontSize: 12,
+                color: canceled ? scheme.onSurfaceVariant : scheme.error,
+              ),
             ),
           ],
         ],
@@ -658,7 +800,8 @@ class TaskTile extends StatelessWidget {
       subtitle: Text(
         '${formatDateTime(item.createdAt)} · ${item.qualityLabel}'
         '${item.bytesTotal == null ? '' : ' · ${formatBytes(item.bytesTotal!)}'}'
-        '${item.needsResave ? ' · ${AppStrings.albumNotSaved}' : ''}',
+        '${item.needsResave ? ' · ${AppStrings.albumNotSaved}' : ''}'
+        '${item.filePath == null ? ' · ${AppStrings.fileCleaned}' : ''}',
         style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
       ),
       trailing: const Icon(Icons.chevron_right),
@@ -700,7 +843,20 @@ class TaskTile extends StatelessWidget {
             ),
             IconButton(
               tooltip: AppStrings.actionCancel,
-              onPressed: () => cmds.cancel(item.id),
+              // 取消是相邻易误触的破坏性操作：给出撤销出口
+              //（取消保留 .part，撤销=重试即从断点继续，无损失）。
+              onPressed: () {
+                cmds.cancel(item.id);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text(AppStrings.taskCanceled),
+                    action: SnackBarAction(
+                      label: AppStrings.actionUndo,
+                      onPressed: () => cmds.retry(item.id),
+                    ),
+                  ),
+                );
+              },
               icon: const Icon(Icons.close),
             ),
           ],
@@ -711,12 +867,32 @@ class TaskTile extends StatelessWidget {
           children: [
             IconButton(
               tooltip: AppStrings.actionResume,
-              onPressed: () => cmds.resume(item.id),
+              // 冷却中被系统暂停的任务点「继续」纹丝不动（_pump 被冷却挡住）：
+              // 给即时反馈说明将自动恢复，避免看起来像功能失效。
+              onPressed: () {
+                if (cooldownActive) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text(AppStrings.resumeInCooldown)),
+                  );
+                }
+                cmds.resume(item.id);
+              },
               icon: const Icon(Icons.play_arrow),
             ),
             IconButton(
               tooltip: AppStrings.actionCancel,
-              onPressed: () => cmds.cancel(item.id),
+              onPressed: () {
+                cmds.cancel(item.id);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text(AppStrings.taskCanceled),
+                    action: SnackBarAction(
+                      label: AppStrings.actionUndo,
+                      onPressed: () => cmds.retry(item.id),
+                    ),
+                  ),
+                );
+              },
               icon: const Icon(Icons.close),
             ),
           ],
@@ -724,7 +900,18 @@ class TaskTile extends StatelessWidget {
       case tbl.DownloadStatus.queued:
         return IconButton(
           tooltip: AppStrings.actionCancel,
-          onPressed: () => cmds.cancel(item.id),
+          onPressed: () {
+            cmds.cancel(item.id);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text(AppStrings.taskCanceled),
+                action: SnackBarAction(
+                  label: AppStrings.actionUndo,
+                  onPressed: () => cmds.retry(item.id),
+                ),
+              ),
+            );
+          },
           icon: const Icon(Icons.close),
         );
       case tbl.DownloadStatus.failed:

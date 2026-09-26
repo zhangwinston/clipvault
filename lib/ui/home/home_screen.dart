@@ -18,7 +18,9 @@ import 'package:clipvault/core/backoff.dart';
 import 'package:clipvault/core/error.dart';
 import 'package:clipvault/core/url_extract.dart';
 import 'package:clipvault/parse/endpoint_config.dart';
+import 'package:clipvault/parse/fxtwitter_parser.dart';
 import 'package:clipvault/parse/models.dart';
+import 'package:clipvault/parse/resilient_parser.dart';
 import 'package:clipvault/parse/syndication_client.dart';
 import 'package:clipvault/parse/syndication_parser.dart';
 import 'package:clipvault/settings/settings_controller.dart';
@@ -37,6 +39,7 @@ class HomeParseState {
     this.error,
     this.result,
     this.recent = const <TweetMeta>[],
+    this.retryAttempt = 0,
   });
 
   final HomePhase phase;
@@ -44,11 +47,16 @@ class HomeParseState {
   final ResolveResult? result;
   final List<TweetMeta> recent;
 
+  /// 当前网络退避重试轮次（1 起；0 = 首次尝试）。
+  /// 供骨架卡展示「正在重试（2/3）…」，让退避等待可解释。
+  final int retryAttempt;
+
   HomeParseState copyWith({
     HomePhase? phase,
     ParseError? error,
     ResolveResult? result,
     List<TweetMeta>? recent,
+    int? retryAttempt,
     bool clearError = false,
     bool clearResult = false,
   }) {
@@ -57,6 +65,7 @@ class HomeParseState {
       error: clearError ? null : (error ?? this.error),
       result: clearResult ? null : (result ?? this.result),
       recent: recent ?? this.recent,
+      retryAttempt: retryAttempt ?? this.retryAttempt,
     );
   }
 }
@@ -65,11 +74,30 @@ enum HomePhase { idle, parsing, error, resolved }
 
 /// 首页解析控制器（Notifier）：URL 校验 → TweetParser.resolve → 状态落位
 class HomeParseController extends Notifier<HomeParseState> {
+  /// 解析代际序号：每次 parse/cancel 递增；旧的在途请求完成时因代际过期
+  /// 而丢弃结果——修复「等待中粘贴新链接再解析，旧请求后完成弹出与
+  /// 输入框不符的 Sheet，点开始下载就下错视频」的竞态（P0-1）。
+  int _generation = 0;
+
   @override
   HomeParseState build() => const HomeParseState();
 
   /// 当前解析器（生产按端点配置仓库构建；测试 override tweetParserProvider）
   Future<TweetParser> get _parser => ref.read(tweetParserProvider.future);
+
+  /// 取消进行中的解析（骨架卡「取消解析」按钮）：
+  /// 代际 +1 使在途请求结果作废，回到 idle。
+  void cancel() {
+    _generation++;
+    if (state.phase == HomePhase.parsing) {
+      state = state.copyWith(
+        phase: HomePhase.idle,
+        retryAttempt: 0,
+        clearError: true,
+        clearResult: true,
+      );
+    }
+  }
 
   /// 发起解析（粘贴/横幅/分享统一入口）
   Future<void> parse(String input) async {
@@ -84,16 +112,27 @@ class HomeParseController extends Notifier<HomeParseState> {
       state = state.copyWith(phase: HomePhase.error, error: UrlInvalid(), clearResult: true);
       return;
     }
-    state = state.copyWith(phase: HomePhase.parsing, clearError: true, clearResult: true);
+    _generation++;
+    final generation = _generation;
+    state = state.copyWith(
+      phase: HomePhase.parsing,
+      retryAttempt: 0,
+      clearError: true,
+      clearResult: true,
+    );
     ParseError? lastError;
     try {
-      final result = await _resolveWithRetry(tweetId);
+      final result = await _resolveWithRetry(tweetId, generation);
+      if (generation != _generation) return; // 已被新解析/取消取代：丢弃
+      // 同推文去重后置顶（P2-3：避免重复条目占满 5 个名额）
       final recent = List<TweetMeta>.of(state.recent)
+        ..removeWhere((t) => t.tweetId == result.tweet.tweetId)
         ..insert(0, result.tweet);
       if (recent.length > 5) recent.removeRange(5, recent.length);
       state = state.copyWith(
         phase: HomePhase.resolved,
         result: result,
+        retryAttempt: 0,
         recent: recent.toList(growable: false),
       );
       return;
@@ -103,26 +142,37 @@ class HomeParseController extends Notifier<HomeParseState> {
       // 兜底归 E02（_resolveWithRetry 内已归一，此处防御）
       lastError = NetworkTimeout();
     }
+    if (generation != _generation) return; // 已被新解析/取消取代：丢弃
     state = state.copyWith(
       phase: HomePhase.error,
       error: lastError,
+      retryAttempt: 0,
       clearResult: true,
     );
   }
 
   /// 解析编排（PRD §5 / DESIGN §6.5/§6.7）：
   /// - E02（NetworkTimeout）：指数退避自动重试 3 次（800ms×2^n+抖动），
-  ///   重试期间 phase 保持 parsing（骨架卡片持续），耗尽才透出错误+重试按钮；
+  ///   重试期间 phase 保持 parsing（骨架卡片持续），且把轮次透出到
+  ///   state.retryAttempt 供骨架卡展示「正在重试（n/3）…」；
   /// - E03/E04/E06 等非网络类不自动重试；
   /// - E07（EndpointDrift）：经端点配置仓库 onEndpointDrift() 刷新，
   ///   刷新到新配置则 invalidate 重建解析器后重试一次（免发版自愈链路）。
-  Future<ResolveResult> _resolveWithRetry(String tweetId) async {
+  Future<ResolveResult> _resolveWithRetry(String tweetId, int generation) async {
     final backoff = ref.read(parseRetryBackoffProvider);
     var networkAttempts = 0;
     while (true) {
       if (networkAttempts > 0) {
+        // 把重试轮次透出给骨架卡（代际守卫：被取消/替换时不写状态）
+        if (generation == _generation) {
+          state = state.copyWith(retryAttempt: networkAttempts);
+        }
         // 退避等待（fakeAsync/测试伪时钟可确定性断言间隔）
         await backoff.wait(networkAttempts - 1);
+        if (generation != _generation) {
+          // 等待期间被取消/替换：以错误形态退出，外层按代际丢弃。
+          throw NetworkTimeout();
+        }
       }
       var driftAttempts = 0;
       while (true) {
@@ -156,7 +206,12 @@ class HomeParseController extends Notifier<HomeParseState> {
   }
 
   void reset() {
-    state = state.copyWith(phase: HomePhase.idle, clearError: true, clearResult: true);
+    state = state.copyWith(
+      phase: HomePhase.idle,
+      retryAttempt: 0,
+      clearError: true,
+      clearResult: true,
+    );
   }
 }
 
@@ -183,15 +238,20 @@ final FutureProvider<EndpointConfigRepository> endpointConfigRepositoryProvider 
   return repo;
 });
 
-/// 解析器注入点：生产用 SyndicationParser 主实现，端点配置取自配置仓库
-/// 当前生效版本（§6.7；E07 刷新成功后 invalidate 重建，新配置生效）。
+/// 解析器注入点：生产装配主备源编排解析器（ResilientParser）——
+/// 主源 syndication + 备源 fxtwitter（随端点配置 fallback.enabled 开关，
+/// 默认关闭即行为等同单主源）；端点配置取自配置仓库当前生效版本
+/// （§6.7；E07 刷新成功后 invalidate 重建，新配置生效）。
 /// 测试以 overrideWith 注入假解析器（FutureProvider 接受同步返回值）。
 final FutureProvider<TweetParser> tweetParserProvider =
     FutureProvider<TweetParser>((ref) async {
   final repo = await ref.watch(endpointConfigRepositoryProvider.future);
-  return SyndicationParser(
-    client: SyndicationClient(dio: Dio()),
-    config: repo.current,
+  return ResilientParser(
+    primary: SyndicationParser(
+      client: SyndicationClient(dio: Dio()),
+      config: repo.current,
+    ),
+    fallback: FxTwitterParser(dio: Dio(), config: repo.current),
   );
 });
 
@@ -207,6 +267,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   final TextEditingController _input = TextEditingController();
   StreamSubscription<String>? _shareSub;
   bool _sheetOpenedFor = false;
+
+  /// 剪贴板横幅一次性解释是否已展示过（持久化，§8.2 前置解释）。
+  bool _clipboardExplained = true;
   // 在 initState 中取一次实例，避免 dispose 阶段访问 ref
   late final ClipboardWatcher _clipboardWatcher;
 
@@ -216,6 +279,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // 挂载剪贴板生命周期观察者（resume 时机读取，§8.2）
     _clipboardWatcher = ref.read(clipboardWatcherProvider.notifier);
     WidgetsBinding.instance.addObserver(_clipboardWatcher);
+    // 一次性解释标记加载（默认 true = 不再展示）
+    SharedPreferences.getInstance().then((prefs) {
+      if (mounted) {
+        setState(() => _clipboardExplained =
+            prefs.getBool(_kClipboardExplainedPref) ?? false);
+      }
+    });
     // P1：系统分享文本 → 自动填充并解析（§7 导航流）
     final share = ref.read(shareReceiverProvider);
     _shareSub = share.sharedText().listen(_onSharedText);
@@ -236,6 +306,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     WidgetsBinding.instance.removeObserver(_clipboardWatcher);
     _input.dispose();
     super.dispose();
+  }
+
+  /// 剪贴板横幅首次出现时的一次性解释标记（P2-8：把「我的·权限说明」
+  /// 的解释前置到用户被系统粘贴提示困扰的现场）。
+  static const String _kClipboardExplainedPref = 'clipboard.explained';
+
+  Future<void> _markClipboardExplained() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kClipboardExplainedPref, true);
+    if (mounted) setState(() => _clipboardExplained = true);
   }
 
   Future<void> _parseInput() async {
@@ -301,38 +381,69 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         child: ListView(
           padding: const EdgeInsets.symmetric(vertical: 8),
           children: [
-            // 剪贴板内联横幅（点击立即解析；§1.3-#4 横幅而非浮窗）
-            if (pendingClipboard != null)
+            // 剪贴板内联横幅（点击立即解析；§1.3-#4 横幅而非浮窗）：
+            // 副文案带推文 ID 尾号（用户可确认目标），首次出现附一次性解释。
+            if (pendingClipboard != null) ...[
               Material(
                 color: scheme.secondaryContainer,
                 child: InkWell(
                   onTap: () {
                     ref.read(clipboardWatcherProvider.notifier).consume();
+                    if (!_clipboardExplained) _markClipboardExplained();
                     _input.text = pendingClipboard;
                     _parseInput();
                   },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    child: Row(
-                      children: [
-                        Icon(Icons.content_paste_search, color: scheme.onSecondaryContainer),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            AppStrings.clipboardBanner,
-                            style: TextStyle(color: scheme.onSecondaryContainer),
+                  child: Semantics(
+                    // 核心入口出现时对读屏用户可达（P1-12）
+                    liveRegion: true,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      child: Row(
+                        children: [
+                          Icon(Icons.content_paste_search, color: scheme.onSecondaryContainer),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  AppStrings.clipboardBanner,
+                                  style: TextStyle(color: scheme.onSecondaryContainer),
+                                ),
+                                if (_tweetIdSummary(pendingClipboard) case final summary?)
+                                  Text(
+                                    summary,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: scheme.onSecondaryContainer,
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
-                        ),
-                        IconButton(
-                          tooltip: AppStrings.homeClear,
-                          onPressed: () => ref.read(clipboardWatcherProvider.notifier).consume(),
-                          icon: Icon(Icons.close, color: scheme.onSecondaryContainer),
-                        ),
-                      ],
+                          IconButton(
+                            tooltip: AppStrings.homeClear,
+                            onPressed: () {
+                              ref.read(clipboardWatcherProvider.notifier).consume();
+                              if (!_clipboardExplained) _markClipboardExplained();
+                            },
+                            icon: Icon(Icons.close, color: scheme.onSecondaryContainer),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
+              if (!_clipboardExplained)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+                  child: Text(
+                    AppStrings.clipboardBannerExplain,
+                    style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                  ),
+                ),
+            ],
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
               child: TextField(
@@ -375,8 +486,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
             const SizedBox(height: 8),
             switch (parseState.phase) {
-              HomePhase.idle => const SizedBox.shrink(),
-              HomePhase.parsing => const ParseSkeleton(),
+              // 空态三步引导（P1-3）：无结果且无最近解析时展示，
+              // 首次解析成功后自然消失（recent 非空）。
+              HomePhase.idle =>
+                (parseState.result == null && parseState.recent.isEmpty)
+                    ? const _HomeGuideCard()
+                    : const SizedBox.shrink(),
+              HomePhase.parsing => ParseSkeleton(
+                  retryAttempt: parseState.retryAttempt,
+                  maxRetries: ref.watch(parseRetryBackoffProvider).maxRetries,
+                  onCancel: () =>
+                      ref.read(homeParseControllerProvider.notifier).cancel(),
+                ),
               HomePhase.error => ParseErrorView(
                   error: parseState.error ?? NetworkTimeout(),
                   onRetry: _parseInput,
@@ -403,6 +524,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  /// 横幅副文案：推文 ID 尾 6 位摘要（如「推文 …43991」），
+  /// 让用户确认将解析的是哪条链接；无法提取时无副文案。
+  String? _tweetIdSummary(String? clipboardText) {
+    final id = extractTweetId(clipboardText ?? '');
+    if (id == null || id.length < 4) return null;
+    return '${AppStrings.clipboardBannerTweetPrefix} …${id.substring(id.length - 6)}';
+  }
+
   void _openQualitySheet(ResolveResult result, String qualityMode) {
     showQualitySheet(
       context,
@@ -410,6 +539,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       // 首选清晰度偏好（§3.2）：'720p' 省流 → 降序列表中首个 720p 档默认
       // 高亮（找不到 720p 档回落最高码率档）
       initialVariantIndex: _preferredVariantIndex(result.tweet.variants, qualityMode),
+      // 多视频切换后按新视频档位重新匹配偏好（P1-5：不再沿用旧索引错档）
+      preferredVariantIndex: (variants) =>
+          _preferredVariantIndex(variants, qualityMode),
       onStartDownload: (variant, _) =>
           _startDownload(variant, result.tweet.tweetId, result.tweet),
       // 多视频推文：Chip 切换 → 按视频序号重新解析（TweetParser.resolve videoIndex）
@@ -434,5 +566,69 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       if (sorted[i].qualityLabel.contains('720p')) return i;
     }
     return 0;
+  }
+}
+
+/// 首页空态三步引导卡（P1-3）：非技术用户的「这个 App 怎么用」自我解释。
+/// 无结果且无最近解析时展示；首次解析成功后由条件自然移除。
+class _HomeGuideCard extends StatelessWidget {
+  const _HomeGuideCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.movie_outlined, color: scheme.primary),
+                const SizedBox(width: 8),
+                Text(
+                  AppStrings.homeGuideTitle,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _step(context, Icons.content_copy, AppStrings.homeGuideStep1),
+            const SizedBox(height: 8),
+            _step(context, Icons.search, AppStrings.homeGuideStep2),
+            const SizedBox(height: 8),
+            _step(context, Icons.save_alt, AppStrings.homeGuideStep3),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(Icons.ios_share, size: 16, color: scheme.onSurfaceVariant),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    AppStrings.homeGuideShareHint,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _step(BuildContext context, IconData icon, String text) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: Theme.of(context).colorScheme.primary),
+        const SizedBox(width: 10),
+        Expanded(child: Text(text)),
+      ],
+    );
   }
 }

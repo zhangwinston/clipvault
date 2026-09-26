@@ -484,6 +484,11 @@ class DownloadEngine {
       final st = _RunState();
       _subs[id] = st;
       _apply(id, (t) => t.withStatus(DownloadStatus.running));
+      // 净时长基准：本次活跃段从「既有累计值 + 当前时刻」起算
+      //（P2-4：排队/暂停/冷却等待不计入已用时间）。
+      final running = _tasks[id];
+      st.activeBaseMs = running?.activeMs ?? 0;
+      st.runningSince = _now();
       await _attemptLoop(id);
     } finally {
       _runningIds.remove(id);
@@ -908,10 +913,24 @@ class DownloadEngine {
       a.endsWith(Platform.pathSeparator) ? '$a$b' : '$a${Platform.pathSeparator}$b';
 
   /// 统一状态演进出口：变更后同步持久层并广播。
+  /// 离开 running 态时结算净时长（本活跃段增量并入累计值）。
   void _apply(String id, DownloadTask Function(DownloadTask t) transform) {
     final current = _tasks[id];
     if (current == null) return;
-    final next = transform(current);
+    var next = transform(current);
+    if (current.status == DownloadStatus.running &&
+        next.status != DownloadStatus.running) {
+      final st = _subs[id];
+      final since = st?.runningSince;
+      if (st != null && since != null) {
+        final settled =
+            st.activeBaseMs + _now().difference(since).inMilliseconds;
+        if (settled > next.activeMs) {
+          next = next.copyWith(activeMs: settled);
+        }
+        st.runningSince = null; // 已结算，避免重复累计
+      }
+    }
     if (identical(next, current)) return;
     _tasks[id] = next;
     _store?.upsert(next);
@@ -926,10 +945,17 @@ class DownloadEngine {
       final int? eta = total != null && speed > 0
           ? ((total - bytesDone) / speed).ceil()
           : null;
+      // 净活跃时长实时累计（随 500ms 节流回写）。
+      final st = _subs[id];
+      final since = st?.runningSince;
+      final activeMs = st != null && since != null
+          ? st.activeBaseMs + _now().difference(since).inMilliseconds
+          : t.activeMs;
       return t.copyWith(
         bytesDone: bytesDone,
         bytesTotal: total ?? t.bytesTotal,
         speedBps: speed,
+        activeMs: activeMs,
         etaSec: eta,
       );
     });
@@ -955,12 +981,16 @@ class DownloadEngine {
   }
 }
 
-/// 单任务运行态（控制信号 + 取消令牌）。
+/// 单任务运行态（控制信号 + 取消令牌 + 净时长基准）。
 class _RunState {
   final CancelToken cancelToken = CancelToken();
   bool pauseRequested = false;
   bool cancelRequested = false;
   bool cooldownRequested = false;
+
+  /// 净时长（P2-4）：本活跃段开始前的累计毫秒数与起始时刻。
+  int activeBaseMs = 0;
+  DateTime? runningSince;
 }
 
 // ---- 引擎内部信号/失败分类（不进入公共契约） ----

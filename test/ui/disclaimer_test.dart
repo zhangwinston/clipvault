@@ -148,7 +148,7 @@ void main() {
     expect(find.text(AppStrings.tabHome), findsOneWidget);
   });
 
-  testWidgets('不同意 → 退出（SystemNavigator.pop）', (tester) async {
+  testWidgets('不同意 → 静态承接页（非 Android 不调用不可靠退出，P2-2）', (tester) async {
     final platformCalls = <String>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, (call) async {
@@ -160,7 +160,12 @@ void main() {
     await tester.tap(find.text(AppStrings.disclaimerDecline));
     await tester.pump();
 
-    expect(platformCalls, contains('SystemNavigator.pop'));
+    // 非 Android（宿主/iOS）：SystemNavigator.pop 对未模态呈现的根 VC 是
+    // 空操作，不再调用；拒绝落到可逃离的静态说明页，不白屏重弹。
+    expect(platformCalls, isNot(contains('SystemNavigator.pop')));
+    expect(find.text(AppStrings.disclaimerDeclinedTitle), findsOneWidget);
+    // 承接页可重新查看协议（回品牌页并再次弹窗）
+    expect(find.text(AppStrings.disclaimerReviewAgain), findsOneWidget);
 
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, null);

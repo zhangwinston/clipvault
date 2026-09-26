@@ -85,6 +85,10 @@ class DownloadRecords extends Table {
   /// 平滑速率 bps（3 秒滑动窗口）。
   IntColumn get speedBps => integer().withDefault(const Constant(0))();
 
+  /// 累计活跃毫秒数（仅 running 态累计；排队/暂停/冷却等待不计入）。
+  /// 「已用时间」的净时长口径（PRD 3.3），替代按入队时刻墙钟差值的失真算法。
+  IntColumn get activeMs => integer().withDefault(const Constant(0))();
+
   /// 预计剩余秒数，未知为 null。
   IntColumn get etaSec => integer().nullable()();
 

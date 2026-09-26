@@ -109,9 +109,18 @@ _ErrorSpec _specFor(ParseError error) {
     EndpointDrift() => _ErrorSpec(
         Icons.dns_outlined,
         AppStrings.errEndpointDrift,
+        hint: AppStrings.errEndpointDriftHint,
+        // 配置刷新可能成功/瞬时结构异常 → 可重试，避免最新版用户走进
+        // 「请升级 App 版本」的死胡同（自愈链路在 remoteUrl 接线前，
+        // 重试是用户侧唯一出路）。
+        retryable: true,
       ),
   };
 }
+
+/// 解析错误 → 主文案（供清晰度 Sheet 多视频切换失败等非视图场景复用，
+/// 与 ParseErrorView 同源，避免两处文案漂移）。
+String parseErrorMessage(ParseError error) => _specFor(error).message;
 
 /// 下载任务失败的 errorCode → 展示文案（§5.3 errorCode 存 ParseError/DownloadError 码）。
 ///

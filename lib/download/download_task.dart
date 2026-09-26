@@ -114,6 +114,7 @@ class DownloadTask {
     this.bytesTotal,
     this.bytesDone = 0,
     this.speedBps = 0,
+    this.activeMs = 0,
     this.etaSec,
     this.filePath,
     this.partPath,
@@ -148,6 +149,10 @@ class DownloadTask {
   final int? bytesTotal;
   final int bytesDone;
   final int speedBps;
+
+  /// 累计活跃毫秒（仅 running 态累计；排队/暂停/冷却等待不计入）。
+  /// 「已用时间」的净时长口径（PRD 3.3）。
+  final int activeMs;
   final int? etaSec;
 
   /// 终转正路径（{tweetId}_{bitrate}.mp4）；完成前为 null。
@@ -243,6 +248,7 @@ class DownloadTask {
     int? bytesTotal,
     int? bytesDone,
     int? speedBps,
+    int? activeMs,
     Object? etaSec = _kUnset,
     String? filePath,
     String? partPath,
@@ -268,6 +274,7 @@ class DownloadTask {
       bytesTotal: bytesTotal ?? this.bytesTotal,
       bytesDone: bytesDone ?? this.bytesDone,
       speedBps: speedBps ?? this.speedBps,
+      activeMs: activeMs ?? this.activeMs,
       etaSec: etaSec == _kUnset ? this.etaSec : etaSec as int?,
       filePath: filePath ?? this.filePath,
       partPath: partPath ?? this.partPath,

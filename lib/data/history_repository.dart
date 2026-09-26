@@ -174,6 +174,19 @@ class HistoryRepository {
     return apply(id, const DownloadRecordsCompanion(albumSavedAt: Value(null)));
   }
 
+  /// 清空行的本地文件路径（缓存清理删除物理文件后调用）：
+  /// 行保留（历史元数据仍在），filePath/partPath 置 null 使播放/重存
+  /// 入口正确禁用，UI 标记「本地文件已清理」，不再遗留必然报错的入口。
+  Future<int> clearFilePaths(int id) {
+    return apply(
+      id,
+      const DownloadRecordsCompanion(
+        filePath: Value(null),
+        partPath: Value(null),
+      ),
+    );
+  }
+
   // ---------------- 启动恢复（DESIGN §4.5） ----------------
 
   /// 启动恢复扫描：状态为未完成（queued/running/paused）的全部记录，

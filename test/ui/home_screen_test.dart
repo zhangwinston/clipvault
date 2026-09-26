@@ -22,6 +22,7 @@ import 'package:clipvault/parse/models.dart';
 import 'package:clipvault/settings/settings_controller.dart';
 import 'package:clipvault/sharing/share_receiver.dart';
 import 'package:clipvault/ui/common/parse_skeleton.dart';
+import 'package:clipvault/ui/common/preview_card.dart';
 import 'package:clipvault/ui/downloads/task_tile.dart';
 import 'package:clipvault/ui/home/home_screen.dart';
 
@@ -477,7 +478,7 @@ void main() {
     await _pumpHome(
       tester,
       parser: parser,
-      reader: FakeClipboardReader([null, _kUrl, _kUrl]),
+      reader: FakeClipboardReader([null, _kUrl, _kUrl, _kUrl]),
       commands: FakeDownloadCommands(),
     );
 
@@ -498,9 +499,87 @@ void main() {
     // 关闭 Sheet 回到首页
     await tester.pump(const Duration(milliseconds: 300));
 
-    // 第三次 resume：同一链接 → 去重不出横幅
+    // 第三次 resume（inactive 瞬时遮挡，未离开 App）：同一链接 → 去重不出横幅
     await _resumeApp(tester);
     expect(find.text(AppStrings.clipboardBanner), findsNothing);
+
+    // 真正离开 App（inactive→hidden→paused）再回来：用户可能重新复制了
+    // 同一链接 → 横幅再次出现（P2-1：去重键在离开前台时重置）。
+    for (final state in [
+      AppLifecycleState.inactive,
+      AppLifecycleState.hidden,
+      AppLifecycleState.paused,
+      AppLifecycleState.hidden,
+      AppLifecycleState.inactive,
+      AppLifecycleState.resumed,
+    ]) {
+      tester.binding.handleAppLifecycleStateChanged(state);
+      await tester.pump();
+    }
+    await tester.pump();
+    expect(find.text(AppStrings.clipboardBanner), findsOneWidget);
+  });
+
+  testWidgets('解析中可取消；取消后旧请求完成不落位结果（P0-1 竞态守卫）', (tester) async {
+    final completer = Completer<ResolveResult>();
+    final parser = FakeTweetParser((_) => completer.future);
+    await _pumpHome(
+      tester,
+      parser: parser,
+      reader: FakeClipboardReader(const []),
+      commands: FakeDownloadCommands(),
+    );
+
+    await tester.enterText(find.byType(TextField), _kUrl);
+    await tester.tap(find.text(AppStrings.homeParse));
+    await tester.pump();
+
+    // 骨架卡出现且带「取消解析」出口
+    expect(find.byType(ParseSkeleton), findsOneWidget);
+    expect(find.text(AppStrings.actionCancelParse), findsOneWidget);
+
+    // 取消 → 回 idle（骨架消失），不再被退避重试锁死
+    await tester.tap(find.text(AppStrings.actionCancelParse));
+    await tester.pump();
+    expect(find.byType(ParseSkeleton), findsNothing);
+
+    // 旧请求此刻完成：代际已过期，结果被丢弃（不置 resolved、不弹 Sheet）
+    completer.complete(
+        ResolveResult(tweet: _meta(), parserVersion: 'syndication-v1'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text(AppStrings.qualitySheetTitle), findsNothing);
+    expect(find.byType(PreviewCard), findsNothing);
+  });
+
+  testWidgets('同推文重复解析：最近解析去重置顶（P2-3）', (tester) async {
+    final parser =
+        FakeTweetParser((_) async => ResolveResult(tweet: _meta(), parserVersion: 'syndication-v1'));
+    await _pumpHome(
+      tester,
+      parser: parser,
+      reader: FakeClipboardReader(const []),
+      commands: FakeDownloadCommands(),
+    );
+
+    Future<void> parseOnce() async {
+      await tester.enterText(find.byType(TextField), _kUrl);
+      await tester.tap(find.text(AppStrings.homeParse));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      // 关闭弹出的 Sheet（无本地化代理时按 icon 定位关闭按钮）
+      final close = find.byIcon(Icons.close);
+      if (close.evaluate().isNotEmpty) {
+        await tester.tap(close.first);
+        await tester.pumpAndSettle();
+      }
+    }
+
+    await parseOnce();
+    await parseOnce();
+
+    // 同推文只保留一条（去重置顶），作者文本不重复堆叠
+    expect(find.text('测试作者'), findsOneWidget);
   });
 
   testWidgets('粘贴按钮从剪贴板填充输入框；清空按钮可用', (tester) async {

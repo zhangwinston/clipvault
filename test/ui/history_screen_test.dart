@@ -34,7 +34,7 @@ class _FakeHistoryCommands implements HistoryCommands {
   Future<bool> resaveToGallery(int id, String filePath) async => true;
 
   @override
-  Future<void> shareFile(String filePath) async {}
+  Future<bool> shareFile(String filePath) async => true;
 }
 
 void main() {
@@ -133,7 +133,8 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.textContaining(AppStrings.albumNotSaved), findsOneWidget);
-    expect(find.text(AppStrings.actionResave), findsOneWidget);
+    // 未保存过 → 「保存至相册」
+    expect(find.text(AppStrings.actionSaveToAlbum), findsOneWidget);
 
     // 落库入册（生产路径由 RepoHistoryCommands.resaveToGallery 写入）
     await repo.markAlbumSaved(row.id);
@@ -141,6 +142,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
 
     expect(find.textContaining(AppStrings.albumNotSaved), findsNothing);
-    expect(find.text(AppStrings.actionResave), findsNothing);
+    // 入册后入口常驻（用户在系统相册删除后仍可重新保存），标签切换为「重新保存至相册」
+    expect(find.text(AppStrings.actionSaveToAlbum), findsNothing);
+    expect(find.text(AppStrings.actionResave), findsOneWidget);
   });
 }
