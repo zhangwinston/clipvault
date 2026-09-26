@@ -15,6 +15,10 @@ abstract final class AppStrings {
   /// 上架名（§8.4，无 X/Twit 前缀；商店名、图标、相册名统一）。
   static const String appName = 'ClipVault';
 
+  /// 双色字标两段（BrandTitle：Clip=onSurface / Vault=primary）。
+  static const String appNameA = 'Clip';
+  static const String appNameB = 'Vault';
+
   /// 数值前缀「约」：「约 24.5 MB」「约 12:05」。
   static const String about = '约';
 

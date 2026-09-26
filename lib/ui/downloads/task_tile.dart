@@ -726,12 +726,45 @@ class TaskTile extends StatelessWidget {
     return item.statusLabel;
   }
 
+  /// 状态语义色（主题 B：四种状态此前长得一样，状态词埋在灰文本里）：
+  /// running=primary / paused=primary 45%（勿用 tertiary——蓝紫色相被
+  /// 主题 C 批评）/ queued=灰 / failed=error / canceled=灰（用户主动行为）。
+  Color _statusColor(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    switch (item.status) {
+      case tbl.DownloadStatus.running:
+        return scheme.primary;
+      case tbl.DownloadStatus.paused:
+        return scheme.primary.withValues(alpha: 0.45);
+      case tbl.DownloadStatus.failed:
+        return scheme.error;
+      case tbl.DownloadStatus.queued:
+      case tbl.DownloadStatus.completed:
+      case tbl.DownloadStatus.canceled:
+        return scheme.onSurfaceVariant;
+    }
+  }
+
+  /// 进度条填充色：随状态语义（暂停态不再是与进行中无异的实心 primary）。
+  Color _progressColor(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    switch (item.status) {
+      case tbl.DownloadStatus.failed:
+        return scheme.error;
+      case tbl.DownloadStatus.paused:
+        return scheme.primary.withValues(alpha: 0.45);
+      default:
+        return scheme.primary;
+    }
+  }
+
   Widget _activeRow(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final ratio = item.progressRatio;
     final percent = ratio == null ? '--' : '${(ratio * 100).toInt()}%';
     final running = item.status == tbl.DownloadStatus.running;
     final canceled = item.status == tbl.DownloadStatus.canceled;
+    final statusColor = _statusColor(context);
     return ListTile(
       leading: _thumb(item.thumbUrl),
       title: Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -739,9 +772,26 @@ class TaskTile extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SizedBox(height: 4),
-          Text('${item.qualityLabel} · $_statusLabel'),
-          const SizedBox(height: 4),
+          // 质量 + 状态词拆分：状态词独立染色加粗（此前与清晰度同串同色）
+          Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(text: '${item.qualityLabel} · '),
+                TextSpan(
+                  text: _statusLabel,
+                  style: TextStyle(
+                    color: statusColor,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
           // 百分比与进度条同行独立展示（§7.1-3：百分比是一级遥测信息）；
+          // 进度条加粗到 8dp + 圆角 + 状态语义色（此前 4dp 发丝级、深色
+          // 轨道对背景仅 1.99:1）；
           // 合成语义描述供读屏用户一次听懂进度（替代零散文本朗读）。
           Semantics(
             label: ratio == null
@@ -752,12 +802,27 @@ class TaskTile extends StatelessWidget {
             child: Row(
               children: [
                 Expanded(
-                  child: LinearProgressIndicator(value: ratio, minHeight: 4),
+                  child: LinearProgressIndicator(
+                    value: ratio,
+                    minHeight: 8,
+                    borderRadius: BorderRadius.circular(4),
+                    color: _progressColor(context),
+                    // 深色轨道需 ≥0.24 不透明度才达 3:1（核验修正值）
+                    backgroundColor:
+                        Theme.of(context).brightness == Brightness.dark
+                            ? scheme.onSurface.withValues(alpha: 0.24)
+                            : scheme.surfaceContainerHighest,
+                  ),
                 ),
                 const SizedBox(width: 8),
                 Text(
                   percent,
-                  style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: running ? scheme.primary : scheme.onSurfaceVariant,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
                 ),
               ],
             ),
@@ -770,7 +835,11 @@ class TaskTile extends StatelessWidget {
             // 已用时间 = 累计活跃毫秒（P2-4：排队/暂停/冷却等待不计入，
             // 与同行速率/ETA 口径自洽；随 500ms 遥测回写驱动的列表重建刷新）
             '${running ? ' · ${AppStrings.labelElapsed} ${formatElapsed(Duration(milliseconds: item.activeMs))}' : ''}',
-            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+            style: TextStyle(
+              fontSize: 12,
+              color: scheme.onSurfaceVariant,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
           ),
           if (canceled || (item.isFailed && item.errorCode != null)) ...[
             const SizedBox(height: 2),

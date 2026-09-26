@@ -44,20 +44,81 @@ class XdownApp extends ConsumerWidget {
     );
   }
 
-  static ThemeData _lightTheme() => ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.light,
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF00696F)),
-      );
-
-  static ThemeData _darkTheme() => ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.dark,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF00696F),
-          brightness: Brightness.dark,
+  /// 最小品牌主题层（UI-VISUAL-REVIEW 主题 A：此前两主题仅 fromSeed、零组件定制，
+  /// 主色占比实测 <1%——「朴素感」的最大单一来源）。
+  ///
+  /// - 卡片：elevation 0 + 12px 圆角 + surfaceContainerLow 底（亮暗都获得分组层次；
+  ///   深色实测唯一有层次的区域正是带 Card 的引导卡）；
+  /// - 输入框：filled + surfaceContainerHighest 底、聚焦 primary 2px（替换
+  ///   「工程原型感」的默认黑灰细描边）；
+  /// - 深色显式提亮主色（fromSeed 默认深色 primary 偏暗，按钮/选中态发闷）。
+  static ThemeData _lightTheme() {
+    final scheme = ColorScheme.fromSeed(seedColor: const Color(0xFF00696F));
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.light,
+      colorScheme: scheme,
+      cardTheme: CardThemeData(
+        elevation: 0,
+        color: scheme.surfaceContainerLow,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: EdgeInsets.zero,
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: scheme.surfaceContainerHighest,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide.none,
         ),
-      );
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: scheme.outlineVariant),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: scheme.primary, width: 2),
+        ),
+      ),
+    );
+  }
+
+  static ThemeData _darkTheme() {
+    final scheme = ColorScheme.fromSeed(
+      seedColor: const Color(0xFF00696F),
+      brightness: Brightness.dark,
+      primary: const Color(0xFF4CD9DE), // 深色提亮主色
+    );
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      colorScheme: scheme,
+      cardTheme: CardThemeData(
+        elevation: 0,
+        color: scheme.surfaceContainerLow,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: EdgeInsets.zero,
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: scheme.surfaceContainerHighest,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: scheme.outlineVariant),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: scheme.primary, width: 2),
+        ),
+      ),
+    );
+  }
 }
 
 /// 首启免责闸门：未同意（或条款版本升级）→ 品牌引导页 + 强制弹窗（§8.3）。

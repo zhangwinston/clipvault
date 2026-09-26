@@ -17,6 +17,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:clipvault/core/app_strings.dart';
 import 'package:clipvault/data/tables.dart' as tbl;
 import 'package:clipvault/settings/settings_controller.dart';
+import 'package:clipvault/ui/common/info_banner.dart';
 import 'package:clipvault/ui/downloads/task_tile.dart';
 import 'package:clipvault/ui/history/history_screen.dart';
 
@@ -202,6 +203,8 @@ class _DownloadList extends ConsumerWidget {
 }
 
 /// 429 冷却横幅：秒级倒计时（截止时刻来自引擎通知流，此前被判空后丢弃）。
+/// 视觉语言统一为 InfoBanner（secondaryContainer + 圆角 + accent 竖条，
+/// 此前为 tertiaryContainer 蓝紫通栏，脱离品牌色系）。
 class _CooldownBanner extends StatefulWidget {
   const _CooldownBanner({required this.until});
 
@@ -235,24 +238,14 @@ class _CooldownBannerState extends State<_CooldownBanner> {
     return Semantics(
       // 状态重大变化对读屏用户可达（P1-12）
       liveRegion: true,
-      child: Material(
-        color: Theme.of(context).colorScheme.tertiaryContainer,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: Row(
-            children: [
-              const Icon(Icons.hourglass_top),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  '${AppStrings.cooldownNoticePrefix}'
-                  '$remaining'
-                  '${AppStrings.cooldownNoticeSuffix}',
-                ),
-              ),
-            ],
-          ),
-        ),
+      child: InfoBanner(
+        icon: Icons.hourglass_top,
+        // 琥珀警示图标（勿用 tertiary 蓝紫——fromSeed 的 tertiary 脱离品牌色系）
+        iconColor: cooldownAmber(Theme.of(context).brightness),
+        message: '${AppStrings.cooldownNoticePrefix}'
+            '$remaining'
+            '${AppStrings.cooldownNoticeSuffix}',
+        emphasizeNumbers: true,
       ),
     );
   }

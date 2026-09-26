@@ -25,6 +25,7 @@ import 'package:clipvault/parse/syndication_client.dart';
 import 'package:clipvault/parse/syndication_parser.dart';
 import 'package:clipvault/settings/settings_controller.dart';
 import 'package:clipvault/sharing/share_receiver.dart';
+import 'package:clipvault/ui/common/brand.dart';
 import 'package:clipvault/ui/common/error_views.dart';
 import 'package:clipvault/ui/common/parse_skeleton.dart';
 import 'package:clipvault/ui/common/preview_card.dart';
@@ -376,60 +377,95 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     });
 
     return Scaffold(
-      appBar: AppBar(title: const Text(AppStrings.appName)),
+      // 品牌 AppBar（主题 A：logo + 双色字标，替代纯文本标题）
+      appBar: AppBar(title: const BrandTitle()),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.symmetric(vertical: 8),
           children: [
             // 剪贴板内联横幅（点击立即解析；§1.3-#4 横幅而非浮窗）：
             // 副文案带推文 ID 尾号（用户可确认目标），首次出现附一次性解释。
+            // 视觉语言与 InfoBanner 统一（圆角 12 + 16/8 外边距 + accent 竖条）。
             if (pendingClipboard != null) ...[
-              Material(
-                color: scheme.secondaryContainer,
-                child: InkWell(
-                  onTap: () {
-                    ref.read(clipboardWatcherProvider.notifier).consume();
-                    if (!_clipboardExplained) _markClipboardExplained();
-                    _input.text = pendingClipboard;
-                    _parseInput();
-                  },
-                  child: Semantics(
-                    // 核心入口出现时对读屏用户可达（P1-12）
-                    liveRegion: true,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      child: Row(
-                        children: [
-                          Icon(Icons.content_paste_search, color: scheme.onSecondaryContainer),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  AppStrings.clipboardBanner,
-                                  style: TextStyle(color: scheme.onSecondaryContainer),
-                                ),
-                                if (_tweetIdSummary(pendingClipboard) case final summary?)
-                                  Text(
-                                    summary,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: scheme.onSecondaryContainer,
-                                    ),
-                                  ),
-                              ],
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: scheme.secondaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      onTap: () {
+                        ref.read(clipboardWatcherProvider.notifier).consume();
+                        if (!_clipboardExplained) _markClipboardExplained();
+                        _input.text = pendingClipboard;
+                        _parseInput();
+                      },
+                      child: Semantics(
+                        // 核心入口出现时对读屏用户可达（P1-12）
+                        liveRegion: true,
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 4,
+                              color: scheme.onSecondaryContainer,
                             ),
-                          ),
-                          IconButton(
-                            tooltip: AppStrings.homeClear,
-                            onPressed: () {
-                              ref.read(clipboardWatcherProvider.notifier).consume();
-                              if (!_clipboardExplained) _markClipboardExplained();
-                            },
-                            icon: Icon(Icons.close, color: scheme.onSecondaryContainer),
-                          ),
-                        ],
+                            Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 8),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.content_paste_search,
+                                        size: 20,
+                                        color: scheme.onSecondaryContainer),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            AppStrings.clipboardBanner,
+                                            style: TextStyle(
+                                              color: scheme.onSecondaryContainer,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                          if (_tweetIdSummary(pendingClipboard)
+                                              case final summary?)
+                                            Text(
+                                              summary,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: scheme.onSecondaryContainer,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: AppStrings.homeClear,
+                                      visualDensity: VisualDensity.compact,
+                                      onPressed: () {
+                                        ref
+                                            .read(clipboardWatcherProvider.notifier)
+                                            .consume();
+                                        if (!_clipboardExplained) {
+                                          _markClipboardExplained();
+                                        }
+                                      },
+                                      icon: Icon(Icons.close,
+                                          size: 20,
+                                          color: scheme.onSecondaryContainer),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
