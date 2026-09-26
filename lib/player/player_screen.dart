@@ -309,6 +309,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Widget _buildControls(BuildContext context, Player? player) {
+    // 布局：顶栏贴顶、播放按钮居中、进度条组贴屏幕底。
+    // 进度条贴底的意义：全屏横屏下 16:9 视频在 ~19.5:9 屏幕上有上下黑边，
+    // 贴底正好落进下方黑边区域；此前首尾双 Spacer 把整组垂直居中，
+    // 进度条横穿画面中线下方（尾部 Spacer 为纯居中旧布局遗留）。
     return Positioned.fill(
       child: Column(
         children: [
@@ -338,7 +342,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ),
           ),
           const Spacer(),
-          if (player != null && _error == null) ...[
+          if (player != null && _error == null)
             StreamBuilder<bool>(
               stream: player.stream.playing,
               initialData: player.state.playing,
@@ -353,50 +357,47 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 },
               ),
             ),
-            const SizedBox(height: 12),
+          const Spacer(),
+          if (player != null && _error == null)
             SafeArea(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  StreamBuilder<Duration>(
-                    stream: player.stream.position,
-                    initialData: player.state.position,
-                    builder: (context, snap) {
-                      final position = snap.data ?? Duration.zero;
-                      final duration = player.state.duration;
-                      final posMs = duration > Duration.zero
-                          ? position.inMilliseconds.clamp(0, duration.inMilliseconds)
-                          : 0;
-                      return Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            '${_fmt(position)} / ${_fmt(duration)}',
-                            style: const TextStyle(color: Colors.white70, fontSize: 12),
-                          ),
-                          SizedBox(
-                            height: 24,
-                            child: Slider(
-                              value: duration > Duration.zero
-                                  ? posMs / duration.inMilliseconds
-                                  : 0,
-                              onChanged: (ratio) => player.seek(
-                                Duration(
-                                  milliseconds:
-                                      (ratio * duration.inMilliseconds).round(),
-                                ),
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: StreamBuilder<Duration>(
+                  stream: player.stream.position,
+                  initialData: player.state.position,
+                  builder: (context, snap) {
+                    final position = snap.data ?? Duration.zero;
+                    final duration = player.state.duration;
+                    final posMs = duration > Duration.zero
+                        ? position.inMilliseconds.clamp(0, duration.inMilliseconds)
+                        : 0;
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '${_fmt(position)} / ${_fmt(duration)}',
+                          style: const TextStyle(color: Colors.white70, fontSize: 12),
+                        ),
+                        SizedBox(
+                          height: 24,
+                          child: Slider(
+                            value: duration > Duration.zero
+                                ? posMs / duration.inMilliseconds
+                                : 0,
+                            onChanged: (ratio) => player.seek(
+                              Duration(
+                                milliseconds:
+                                    (ratio * duration.inMilliseconds).round(),
                               ),
                             ),
                           ),
-                        ],
-                      );
-                    },
-                  ),
-                ],
+                        ),
+                      ],
+                    );
+                  },
+                ),
               ),
             ),
-          ],
-          const Spacer(),
         ],
       ),
     );
