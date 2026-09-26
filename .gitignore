@@ -57,3 +57,8 @@ android/app/.cxx/
 
 # ---- 大型生成语料（tools/token_corpus.mjs 确定性再生，seed=42，CI 中生成）----
 test/resources/token_corpus.csv
+
+# 凭据文件绝不入库（曾差点随 git add -A 提交）
+token.txt
+*.token
+

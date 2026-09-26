@@ -18,6 +18,7 @@ const String kPrefEndpointConfigVersion = 'endpoint.configVersion';
 const String kPrefSettingsConcurrency = 'settings.concurrency';
 const String kPrefSettingsQualityMode = 'settings.qualityMode';
 const String kPrefSettingsWifiOnly = 'settings.wifiOnly';
+const String kPrefSettingsBackupHistory = 'settings.backupHistory';
 const String kPrefSettingsAutoCleanDays = 'settings.autoCleanDays';
 const String kPrefSettingsAutoCleanMaxBytes = 'settings.autoCleanMaxBytes';
 
@@ -33,6 +34,7 @@ class SettingsState {
     required this.concurrency,
     required this.qualityMode,
     required this.wifiOnly,
+    required this.backupHistory,
     required this.autoCleanDays,
     required this.autoCleanMaxBytes,
     this.disclaimerAcceptedAt,
@@ -44,6 +46,9 @@ class SettingsState {
   final int concurrency;
   final String qualityMode;
   final bool wifiOnly;
+
+  /// 卸载重装后保留历史（自动备份到公共 Downloads，DESIGN §4.7）
+  final bool backupHistory;
   final int autoCleanDays;
   final int autoCleanMaxBytes;
 
@@ -57,6 +62,7 @@ class SettingsState {
     int? concurrency,
     String? qualityMode,
     bool? wifiOnly,
+    bool? backupHistory,
     int? autoCleanDays,
     int? autoCleanMaxBytes,
   }) {
@@ -67,6 +73,7 @@ class SettingsState {
       concurrency: concurrency ?? this.concurrency,
       qualityMode: qualityMode ?? this.qualityMode,
       wifiOnly: wifiOnly ?? this.wifiOnly,
+      backupHistory: backupHistory ?? this.backupHistory,
       autoCleanDays: autoCleanDays ?? this.autoCleanDays,
       autoCleanMaxBytes: autoCleanMaxBytes ?? this.autoCleanMaxBytes,
     );
@@ -116,6 +123,7 @@ class SettingsController extends AsyncNotifier<SettingsState> {
       concurrency: prefs.getInt(kPrefSettingsConcurrency) ?? 2,
       qualityMode: prefs.getString(kPrefSettingsQualityMode) ?? kQualityModeHighest,
       wifiOnly: prefs.getBool(kPrefSettingsWifiOnly) ?? false,
+      backupHistory: prefs.getBool(kPrefSettingsBackupHistory) ?? true,
       autoCleanDays: prefs.getInt(kPrefSettingsAutoCleanDays) ?? 3,
       autoCleanMaxBytes: prefs.getInt(kPrefSettingsAutoCleanMaxBytes) ?? 2 * 1024 * 1024 * 1024,
     );
@@ -171,6 +179,14 @@ class SettingsController extends AsyncNotifier<SettingsState> {
     if (cur != null) state = AsyncData(cur.copyWith(wifiOnly: value));
   }
 
+  /// 卸载重装保留历史开关（§4.7）：关闭即停自动导出（已生成的备份文件保留）
+  Future<void> setBackupHistory(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(kPrefSettingsBackupHistory, value);
+    final cur = _current;
+    if (cur != null) state = AsyncData(cur.copyWith(backupHistory: value));
+  }
+
   /// 缓存占用（字节）
   Future<int> cacheBytes() => ref.read(cacheStoreProvider).sizeBytes();
 
@@ -184,3 +200,8 @@ class SettingsController extends AsyncNotifier<SettingsState> {
 
 final AsyncNotifierProvider<SettingsController, SettingsState> settingsControllerProvider =
     AsyncNotifierProvider<SettingsController, SettingsState>(SettingsController.new);
+
+/// 备份开关窄视图（main 装配监听用：仅备份开关变化时通知，不随整状态刷新）
+final Provider<bool> backupHistoryFlagProvider = Provider<bool>((ref) {
+  return ref.watch(settingsControllerProvider).value?.backupHistory ?? true;
+});

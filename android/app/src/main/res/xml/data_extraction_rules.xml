@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- API 31+ 数据提取规则（云备份 + 换机迁移，DESIGN §4.7 方案层①）：
+     与 backup_rules.xml 同口径——含 DB/偏好，排除下载缓存。 -->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="file" path="app_flutter" />
+        <exclude domain="file" path="app_flutter/downloads" />
+        <include domain="sharedpref" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="file" path="app_flutter" />
+        <exclude domain="file" path="app_flutter/downloads" />
+        <include domain="sharedpref" path="." />
+    </device-transfer>
+</data-extraction-rules>

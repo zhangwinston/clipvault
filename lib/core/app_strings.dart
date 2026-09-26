@@ -318,4 +318,21 @@ abstract final class AppStrings {
   /// 手势进度调节的无障碍标签。
   static const String playerSeekLabel = '横向拖动调节进度';
   static const String playerVolumeLabel = '左侧上下拖动调节音量';
+
+  // ---- 历史备份（§4.7 卸载重装保留历史）----
+  /// 设置分区标题。
+  static const String settingsSectionBackup = '备份与恢复';
+  /// 设置项：自动备份开关标题/副标题。
+  static const String settingsBackupKeep = '卸载重装后保留历史';
+  static const String settingsBackupKeepHint =
+      '自动备份下载记录到「下载/ClipVault」，重装后自动恢复';
+
+  /// 设置项：手动操作按钮与结果提示。
+  static const String actionBackupNow = '立即备份';
+  static const String actionRestoreBackup = '从备份恢复';
+  static const String toastBackupDone = '备份完成';
+  static const String toastBackupFailed = '备份失败，请稍后重试';
+  static const String toastRestoreDone = '已恢复 {n} 条记录';
+  static const String toastRestoreEmpty = '没有可用的备份';
+  static const String toastRestoreUptodate = '记录均已存在，无需恢复';
 }

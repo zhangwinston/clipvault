@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- API ≤30 云备份规则（fullBackupContent，DESIGN §4.7 方案层①）：
+     仅备份数据库与偏好（app_flutter 根下的 xdown.db + shared_prefs），
+     排除 downloads 下载缓存——25MB 云备份配额有限，且已完成视频均在
+     公共相册（卸载不丢），无需重复上传。 -->
+<full-backup-content>
+    <include domain="file" path="app_flutter" />
+    <exclude domain="file" path="app_flutter/downloads" />
+    <include domain="sharedpref" path="." />
+</full-backup-content>

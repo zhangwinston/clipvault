@@ -6,6 +6,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:clipvault/backup/backup_service.dart' show activeBackupService;
 import 'package:clipvault/core/app_strings.dart';
 import 'package:clipvault/settings/settings_controller.dart';
 import 'package:clipvault/ui/common/disclaimer_dialog.dart';
@@ -132,6 +133,41 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
             onChanged: (value) => ref
                 .read(settingsControllerProvider.notifier)
                 .setWifiOnly(value),
+          ),
+        ]),
+        _header(context, AppStrings.settingsSectionBackup),
+        _group([
+          SwitchListTile(
+            secondary: const Icon(Icons.backup_outlined),
+            title: Text(AppStrings.settingsBackupKeep),
+            subtitle: Text(AppStrings.settingsBackupKeepHint),
+            value: settings.backupHistory,
+            onChanged: (value) => ref
+                .read(settingsControllerProvider.notifier)
+                .setBackupHistory(value),
+          ),
+          const Divider(height: 1, indent: 16, endIndent: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _backupNow(context),
+                    icon: const Icon(Icons.upload_file_outlined),
+                    label: Text(AppStrings.actionBackupNow),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _restoreBackup(context),
+                    icon: const Icon(Icons.restore_outlined),
+                    label: Text(AppStrings.actionRestoreBackup),
+                  ),
+                ),
+              ],
+            ),
           ),
         ]),
         _header(context, AppStrings.settingsSectionCache),
@@ -294,6 +330,34 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
   }
 
   /// 清理缓存前置确认（P0：此操作实际删除视频本地副本，必须列明影响）。
+  /// 立即全量备份（§4.7 手动入口；自动导出之外的保险动作）
+  Future<void> _backupNow(BuildContext context) async {
+    final svc = activeBackupService;
+    if (svc == null) return;
+    final ok = await svc.exportNow();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(ok ? AppStrings.toastBackupDone : AppStrings.toastBackupFailed),
+    ));
+  }
+
+  /// 从备份恢复（§4.7 手动入口；按 (tweetId, bitrate) 去重合并）
+  Future<void> _restoreBackup(BuildContext context) async {
+    final svc = activeBackupService;
+    if (svc == null) return;
+    final n = await svc.restoreManual();
+    if (!context.mounted) return;
+    final String msg;
+    if (n < 0) {
+      msg = AppStrings.toastRestoreEmpty;
+    } else if (n == 0) {
+      msg = AppStrings.toastRestoreUptodate;
+    } else {
+      msg = AppStrings.toastRestoreDone.replaceFirst('{n}', '$n');
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
   Future<void> _confirmCleanCache(BuildContext context) async {
     final notifier = ref.read(settingsControllerProvider.notifier);
     final stats = await notifier.cacheStats();

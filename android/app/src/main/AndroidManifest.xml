@@ -25,10 +25,17 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
+    <!-- 云自动恢复（DESIGN §4.7 方案层①）：显式开启并限定范围——
+         仅 DB/偏好，排除下载缓存（25MB 配额；视频已在公共相册）。
+         规则文件：res/xml/backup_rules.xml（API≤30）与
+         data_extraction_rules.xml（API 31+ 云备份+换机迁移）。 -->
     <application
         android:label="ClipVault"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules">
         <activity
             android:name=".MainActivity"
             android:exported="true"

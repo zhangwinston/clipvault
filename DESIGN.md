@@ -282,6 +282,20 @@ D:/Program/xdown/
 - P0 即有：免责声明重看（版本化，§8.3）、权限说明（iOS 粘贴横幅/Android 12 剪贴板 toast 的系统提示解释）、缓存占用与手动清理、版本信息与端点配置版本显示（仅诊断用途，不泄漏运维概念到 C 端）；
 - P2 激活：默认画质偏好（最高/省流 720p）、并发数(1-3)、仅 Wi-Fi 下载、自动清理策略（3 天/2GB）。
 
+### 4.7 历史备份与卸载重装恢复（2026-09-26 增补）
+
+**问题**：DB 与下载文件均在应用私有目录，卸载即全失；但已入相册的视频在公共媒体库**卸载后保留**，且同包名重装后 owner 复联可免权限读回。
+
+**三层方案**（`lib/backup/`，测试 `test/backup/backup_service_test.dart`）：
+
+| 层 | 机制 | 适用 |
+|---|---|---|
+| ① 云自动恢复 | `allowBackup` 显式化 + `res/xml/backup_rules.xml`（API≤30）/ `data_extraction_rules.xml`（31+）：含 DB/偏好、排除 downloads 缓存 | GMS 设备零交互 |
+| ② 本地自动备份 | 历史流防抖 3s 全量快照 → `BackupStore`；Android 经 `clipvault/backup` 通道写公共 `Downloads/ClipVault/clipvault_backup.json`（MediaStore，API 29+）；重装首启空库静默导入，按 `{tweetId}_{bitrate}.mp4` 回查相册复活 filePath/albumSavedAt | 全平台核心路径 |
+| ③ iOS | Documents 目录（`UIFileSharingEnabled` 在「文件」App 可见 + iCloud 整机备份覆盖） | iOS 兜底 |
+
+**导入语义**：活动态（queued/running/paused）一律归 **canceled**（无 .part 可续，绝不自动重下，用户可从历史重试）；手动恢复按 (tweetId, bitrate) 去重合并；备份损坏/缺失静默降级不抛。设置页「备份与恢复」：自动备份开关（默认开）+ 立即备份/从备份恢复。
+
 ---
 
 ## ⑤ 数据模型（Dart 类字段级）与本地存储

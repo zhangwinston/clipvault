@@ -8,9 +8,12 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:clipvault/app.dart';
+import 'package:clipvault/backup/backup_service.dart';
+import 'package:clipvault/backup/backup_store.dart';
 import 'package:clipvault/data/history_repository.dart';
 import 'package:clipvault/data/tables.dart';
 import 'package:clipvault/settings/settings_controller.dart';
@@ -37,6 +40,11 @@ void main() {
           cleaner: () => _cleanCacheFiles(repo),
         );
       }),
+      // 历史备份存储：Android 走 MediaStore 公共 Downloads（跨卸载保留），
+      // 其余平台 Documents（iOS「文件」App 可见 + iCloud 备份，§4.7）
+      backupStoreProvider.overrideWith(
+        (ref) => defaultBackupStoreForPlatform(defaultTargetPlatform),
+      ),
     ],
   );
   runApp(UncontrolledProviderScope(
@@ -73,15 +81,34 @@ Future<void> _bootstrapRecovery(ProviderContainer container) async {
     }
 
     maybeRelease(container.read(settingsControllerProvider));
-    final sub = container.listen(
+    final settingsSub = container.listen(
       settingsControllerProvider,
       (_, next) => maybeRelease(next),
     );
     await released.future;
-    sub.close();
+    settingsSub.close();
+
+    final repo = container.read(historyRepositoryProvider);
+
+    // 历史备份（§4.7）：重装场景先静默恢复（空库才生效），再挂自动导出。
+    // 必须在引擎恢复扫描之前——导入的记录含活动态映射的 canceled，
+    // 不参与重下；已存在记录时 restoreIfEmpty 为 no-op。
+    final settings = container.read(settingsControllerProvider).value;
+    final backup = BackupService(
+      repo: repo,
+      store: container.read(backupStoreProvider),
+    );
+    backup.enabled = settings?.backupHistory ?? true;
+    await backup.start(autoExportEnabled: settings?.backupHistory ?? true);
+    activeBackupService = backup;
+    // 设置页关闭开关 → 停自动导出（已生成的备份文件保留）
+    container.listen<bool>(
+      backupHistoryFlagProvider,
+      (_, next) => backup.enabled = next,
+      fireImmediately: false,
+    );
 
     final commands = container.read(downloadCommandsProvider);
-    final repo = container.read(historyRepositoryProvider);
     final recovered = await repo.recoverOnStartup(onRequeue: (_) {});
     await restoreDownloadRecords(commands, recovered);
   } catch (_) {
