@@ -18,6 +18,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:drift/drift.dart' show LazyDatabase, Value;
 import 'package:drift/native.dart' show NativeDatabase;
 import 'package:flutter/material.dart';
+import 'package:clipvault/core/proxy_image.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:clipvault/core/app_strings.dart';
 import 'package:clipvault/data/database.dart';
@@ -918,8 +919,8 @@ class TaskTile extends StatelessWidget {
         height: 44,
         child: url == null
             ? const Center(child: Icon(Icons.movie_outlined, size: 20))
-            : Image.network(
-                url,
+            : Image(
+                image: ProxyNetworkImage(url),
                 cacheWidth: 144,
                 fit: BoxFit.cover,
                 errorBuilder: (_, _, _) =>

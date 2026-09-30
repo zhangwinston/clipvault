@@ -169,18 +169,19 @@ abstract final class AppStrings {
 
   // ---------------- 我的 Tab（§4.6 / §7.4）----------------
 
-  /// 法律区：免责声明重看入口（§8.3）。
-  static const String settingsSectionLegal = '法律';
-  static const String settingsDisclaimerRevisit = '重新查看《使用协议》';
+  /// 法律区：免责声明重看入口（§8.3；已并入「隐私与条款」组，UI 评审
+  /// 2026-09-30）。
+  static const String settingsDisclaimerRevisit = '查看《使用协议》';
 
-  /// 已同意版本前缀，与版本号拼接：「已同意版本 v1」/「已同意版本 v1 → v2」。
-  static const String settingsDisclaimerVersionPrefix = '已同意版本 ';
+  /// 已同意版本前缀，与版本号拼接：「已同意 v1」/「已同意 v1 → v2」。
+  static const String settingsDisclaimerVersionPrefix = '已同意 ';
 
   /// 从未同意过条款时的副标题。
   static const String settingsDisclaimerNone = '尚未同意《使用协议》';
 
-  /// 权限区：系统粘贴横幅/剪贴板 Toast 解释（§8.2）。
-  static const String settingsSectionPermission = '权限';
+  /// 隐私与条款区（UI 评审 2026-09-30：原「权限」「法律」两组合并；
+  /// §8.2 合规解释只要求可达，不要求常驻平铺——长文改点开弹层）。
+  static const String settingsSectionPrivacyLegal = '隐私与条款';
   static const String settingsPermissionTitle = '权限说明';
   static const String settingsPermissionBody =
       '当您粘贴链接或回到前台时，系统可能显示粘贴提示横幅或 Toast，'
@@ -210,17 +211,19 @@ abstract final class AppStrings {
 
   /// 偏好区（P2）。
   static const String settingsSectionPrefs = '偏好设置';
-  static const String settingsQualityMode = '首选清晰度';
-  static const String settingsQualityHighest = '最高画质';
-  static const String settingsQuality720p = '720P';
-  static const String settingsConcurrency = '并发下载数';
+  static const String settingsQualityMode = '默认清晰度';
+  static const String settingsQualityHighest = '最高';
+  static const String settingsQuality720p = '720P（省流）';
+  static const String settingsConcurrency = '同时下载数';
   static const String settingsWifiOnly = '仅 Wi-Fi 下载';
 
   /// 关于区（§7.4；视觉评审主题 H：原「诊断」术语对普通用户是天书）。
   static const String settingsSectionDiag = '关于';
   static const String settingsVersion = '版本信息';
   static const String settingsEndpointVersion = '解析服务配置';
-  static const String settingsDiagHint = '以上信息仅作技术只读展示。';
+  static const String settingsEndpointHint = '由解析服务下发，仅作技术只读展示';
+  static const String settingsNetDiagHint = '检测代理 / DNS / TCP / HTTPS 链路';
+  static const String diagRunning = '正在诊断…';
 
   /// 版本信息点击弹窗：仓库链接展示与复制。
   static const String settingsRepoLink = '仓库地址（GitHub）';
@@ -321,11 +324,11 @@ abstract final class AppStrings {
 
   // ---- 历史备份（§4.7 卸载重装保留历史）----
   /// 设置分区标题。
-  static const String settingsSectionBackup = '备份与恢复';
+  static const String settingsSectionBackup = '备份';
   /// 设置项：自动备份开关标题/副标题。
   static const String settingsBackupKeep = '卸载重装后保留历史';
   static const String settingsBackupKeepHint =
-      '自动备份下载记录到「下载/ClipVault」，重装后自动恢复';
+      '自动备份到「下载/ClipVault」，重装后自动恢复';
 
   /// 设置项：手动操作按钮与结果提示。
   static const String actionBackupNow = '立即备份';
@@ -338,20 +341,27 @@ abstract final class AppStrings {
 
 
   // ---- 网络代理（§6.9 手动代理：移动网络无系统代理的根本解法）----
-  /// 设置分区标题。
+  /// 设置分区标题。UI 评审 2026-09-30：教学长文迁入 ⓘ 弹层，常驻仅一行。
   static const String settingsSectionProxy = '网络代理';
-  static const String settingsProxyManualLabel = '手动代理地址';
-  static const String settingsProxyManualHint = 'host:port，如 127.0.0.1:2080';
+  static const String settingsProxyToggle = '使用代理';
+  static const String settingsProxyActiveNow = '当前生效：';
+  static const String settingsProxyManualLabel = '代理地址';
+  static const String settingsProxyManualHint = '如 127.0.0.1:2080';
   static const String settingsProxyManualHelper =
-      '移动网络下系统无代理设置：可填本机代理端口（sing-box 2080 / Clash 7890 / v2rayN 10808）。留空跟随系统代理；TUN/VPN 模式无需填写';
-  static const String actionSaveProxy = '保存';
-  static const String toastProxySaved = '代理已保存并即时生效';
+      'TUN/VPN 模式无需开启，常见端口点 ⓘ 查看';
+  static const String settingsProxyHelpTitle = '代理地址说明';
+  static const String settingsProxyPortsTable =
+      '移动网络下系统无代理设置：缺省 127.0.0.1:2080（sing-box 混合端口），可改 Clash 7890 / v2rayN 10808 等';
+  static const String settingsProxyKeepNote =
+      '关闭开关仅暂停使用，地址保留，重开免重填；关闭后回落系统代理或直连';
+  static const String toastProxySavedDisabled = '已保存，开启代理后生效';
   static const String toastProxyInvalid = '格式应为 host:port（端口 1-65535）';
 
 
   // ---- 网络诊断（§6.9 配套：分层定位代理/TUN 环境失败环节）----
   static const String actionNetDiag = '网络诊断';
-  static const String diagTitle = '网络诊断（cdn.syndication.twimg.com）';
+  static const String diagTitle = '网络诊断';
+  static const String diagTargetHost = '目标：cdn.syndication.twimg.com';
   static const String diagStageProxy = '代理设置';
   static const String diagStageDns = 'DNS 解析';
   static const String diagStageTcp = 'TCP 连接';

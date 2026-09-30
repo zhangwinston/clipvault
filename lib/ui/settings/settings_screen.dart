@@ -51,6 +51,9 @@ class _SettingsBody extends ConsumerStatefulWidget {
 class _SettingsBodyState extends ConsumerState<_SettingsBody> {
   int? _cacheBytes;
 
+  /// 网络诊断进行中（行内 spinner，UI 评审 R4）
+  bool _diagRunning = false;
+
   /// 手动代理输入控制器（initState 由设置快照初始化）
   final TextEditingController _proxyCtrl = TextEditingController();
   String? _proxyError;
@@ -62,36 +65,105 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
     _refreshCache();
   }
 
+  /// 开关开启且地址为空时控制器会落缺省地址（state 变化触发重建）——
+  /// 同步进输入框：非编辑态全量同步；聚焦时仅当框为空才补缺省（否则
+  /// 副标题"当前生效"与空框长期矛盾，审查发现 #3）。同步即清残留的
+  /// 格式错误提示（审查发现 #4）。
+  @override
+  void didUpdateWidget(covariant _SettingsBody oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.settings.proxyAddress != oldWidget.settings.proxyAddress &&
+        (!_proxyCtrl.hasFocus || _proxyCtrl.text.trim().isEmpty)) {
+      _proxyCtrl.text = widget.settings.proxyAddress;
+      if (_proxyError != null) setState(() => _proxyError = null);
+    }
+  }
+
   @override
   void dispose() {
     _proxyCtrl.dispose();
     super.dispose();
   }
 
+  /// 失焦自动保存（UI 评审 R3：无保存按钮）：仅在有改动时触发，
+  /// 避免每次点页面都写盘。
+  void _maybeSaveProxy() {
+    if (_proxyCtrl.text.trim() != widget.settings.proxyAddress) _saveProxy();
+  }
+
   /// 保存手动代理（§6.9）：校验与生效同源（setProxyAddress 内部复用
-  /// parseProxyAddress），成功即注入运行时 Dio 出口，无需重启。
+  /// parseProxyAddress）。回车/失焦触发；开关关闭态保存以 toast 提示，
+  /// 开启态由副标题"当前生效"即时反馈（UI 评审 R3 反馈瘦身）。
   Future<void> _saveProxy() async {
     final ok = await ref
         .read(settingsControllerProvider.notifier)
         .setProxyAddress(_proxyCtrl.text);
     if (!mounted) return;
-    setState(() => _proxyError =
-        ok ? null : AppStrings.toastProxyInvalid);
-    if (ok && mounted) {
+    setState(() => _proxyError = ok ? null : AppStrings.toastProxyInvalid);
+    if (ok && !widget.settings.proxyEnabled) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text(AppStrings.toastProxySaved)),
+        const SnackBar(content: Text(AppStrings.toastProxySavedDisabled)),
       );
     }
+  }
+
+  /// 代理地址说明弹层（UI 评审 R2）：端口对照与开关语义长文迁入此处，
+  /// 主界面常驻 helper 仅一行。
+  Future<void> _showProxyHelp(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text(AppStrings.settingsProxyHelpTitle),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(AppStrings.settingsProxyPortsTable),
+            const SizedBox(height: 12),
+            const Text(AppStrings.settingsProxyKeepNote),
+          ],
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text(AppStrings.settingsClose),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 权限说明全文弹层（UI 评审 R1）：合规长文从常驻副标题迁为点开弹层，
+  /// 与《使用协议》行同款交互；正文话术逐字保留（§8.2 只要求可达）。
+  Future<void> _showPermissionDialog(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text(AppStrings.settingsPermissionTitle),
+        content: const Text(AppStrings.settingsPermissionBody),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text(AppStrings.settingsClose),
+          ),
+        ],
+      ),
+    );
   }
 
   /// 网络诊断（§6.9 配套）：分层定位代理/TUN 环境失败环节，
   /// 结果对话框给出每阶段耗时与结论数据。
   Future<void> _runNetDiag(BuildContext context) async {
+    if (_diagRunning) return;
+    setState(() => _diagRunning = true);
+    // 行内 spinner 为主反馈；SnackBar 短文案兜底（无障碍/慢网提示）
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('…')),
+      const SnackBar(content: Text(AppStrings.diagRunning)),
     );
     final steps = await runNetworkDiagnostics();
+    if (mounted) setState(() => _diagRunning = false);
     if (!context.mounted) return;
+    final diagScheme = Theme.of(context).colorScheme;
     final stageNames = {
       'proxy': AppStrings.diagStageProxy,
       'dns': AppStrings.diagStageDns,
@@ -107,6 +179,10 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // 目标域名从标题挪入正文首行（UI 评审：域名不砸标题位）
+              Text(AppStrings.diagTargetHost,
+                  style: Theme.of(ctx).textTheme.bodySmall),
+              const SizedBox(height: 4),
               for (final s in steps)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4),
@@ -114,10 +190,11 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(children: [
+                        // 主题语义色替代硬编码纯色（暗色对比/语义兜底）
                         Icon(
                           s.ok ? Icons.check_circle : Icons.cancel,
                           size: 18,
-                          color: s.ok ? Colors.green : Colors.red,
+                          color: s.ok ? diagScheme.primary : diagScheme.error,
                         ),
                         const SizedBox(width: 6),
                         Text('${stageNames[s.stage] ?? s.stage} '
@@ -135,9 +212,10 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
           ),
         ),
         actions: [
+          // 只读结果弹窗无「取消」语义（UI 评审 quickWin）
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text(AppStrings.actionCancel),
+            child: const Text(AppStrings.settingsClose),
           ),
         ],
       ),
@@ -191,8 +269,9 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // 值由 SegmentedButton 选中段自表达，标题不再拼接冗余数字
                 Text(
-                  '${AppStrings.settingsConcurrency}：${settings.concurrency}',
+                  AppStrings.settingsConcurrency,
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 8),
@@ -225,35 +304,42 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
         ]),
         _header(context, AppStrings.settingsSectionProxy),
         _group([
+          // 总开关（用户反馈 2026-09-30）：一键启停，地址常驻免重填；
+          // 副标题仅在开启态呈现生效地址（空地址回落缺省 127.0.0.1:2080），
+          // 关闭态不渲染（UI 评审：开关态由 Switch 自表达）
+          SwitchListTile(
+            secondary: const Icon(Icons.vpn_key_outlined),
+            title: Text(AppStrings.settingsProxyToggle),
+            subtitle: settings.proxyEnabled
+                ? Text(AppStrings.settingsProxyActiveNow +
+                    settings.effectiveProxyAddress)
+                : null,
+            value: settings.proxyEnabled,
+            onChanged: (value) => ref
+                .read(settingsControllerProvider.notifier)
+                .setProxyEnabled(value),
+          ),
+          const Divider(height: 1, indent: 16, endIndent: 16),
+          // 地址框（UI 评审 R2/R3）：无保存按钮——回车/失焦即存；端口
+          // 对照与开关说明长文迁入 ⓘ 弹层，常驻 helper 仅一行
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextField(
-                  controller: _proxyCtrl,
-                  decoration: InputDecoration(
-                    labelText: AppStrings.settingsProxyManualLabel,
-                    hintText: AppStrings.settingsProxyManualHint,
-                    errorText: _proxyError,
-                  ),
-                  keyboardType: TextInputType.url,
-                  onSubmitted: (_) => _saveProxy(),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: TextField(
+              controller: _proxyCtrl,
+              decoration: InputDecoration(
+                labelText: AppStrings.settingsProxyManualLabel,
+                hintText: AppStrings.settingsProxyManualHint,
+                helperText: AppStrings.settingsProxyManualHelper,
+                errorText: _proxyError,
+                suffixIcon: IconButton(
+                  tooltip: AppStrings.settingsProxyHelpTitle,
+                  icon: const Icon(Icons.help_outline),
+                  onPressed: () => _showProxyHelp(context),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  AppStrings.settingsProxyManualHelper,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: FilledButton.tonal(
-                    onPressed: _saveProxy,
-                    child: const Text(AppStrings.actionSaveProxy),
-                  ),
-                ),
-              ],
+              ),
+              keyboardType: TextInputType.url,
+              onSubmitted: (_) => _saveProxy(),
+              onTapOutside: (_) => _maybeSaveProxy(),
             ),
           ),
         ]),
@@ -270,7 +356,7 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
           ),
           const Divider(height: 1, indent: 16, endIndent: 16),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
               children: [
                 Expanded(
@@ -302,27 +388,29 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
           ),
           const Divider(height: 1, indent: 16, endIndent: 16),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
                 onPressed: () => _confirmCleanCache(context),
-                icon: const Icon(Icons.cleaning_services_outlined),
+                // 图标语义对齐"删除本地副本"的真实口径（UX-REVIEW P0-4）
+                icon: const Icon(Icons.delete_sweep_outlined),
                 label: const Text(AppStrings.settingsCacheClean),
               ),
             ),
           ),
         ]),
-        _header(context, AppStrings.settingsSectionPermission),
+        // 隐私与条款（UI 评审 R1：原「权限」「法律」两组合并；权限合规
+        // 长文从常驻副标题迁入点开弹层，与《使用协议》行同款交互）
+        _header(context, AppStrings.settingsSectionPrivacyLegal),
         _group([
           ListTile(
             leading: const Icon(Icons.privacy_tip_outlined),
             title: Text(AppStrings.settingsPermissionTitle),
-            subtitle: Text(AppStrings.settingsPermissionBody),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _showPermissionDialog(context),
           ),
-        ]),
-        _header(context, AppStrings.settingsSectionLegal),
-        _group([
+          const Divider(height: 1, indent: 16, endIndent: 16),
           ListTile(
             leading: const Icon(Icons.gavel_outlined),
             title: Text(AppStrings.settingsDisclaimerRevisit),
@@ -342,11 +430,20 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
         ]),
         _header(context, AppStrings.settingsSectionDiag),
         _group([
+          // 副标题修正：此前错用代理输入框 hint（文案错配，UI 评审 quickWin）；
+          // 运行期行内 spinner 替代纯文字反馈（R4），完成即弹结果框
           ListTile(
             leading: const Icon(Icons.network_check),
             title: Text(AppStrings.actionNetDiag),
-            subtitle: Text(AppStrings.settingsProxyManualHint),
-            onTap: () => _runNetDiag(context),
+            subtitle: Text(AppStrings.settingsNetDiagHint),
+            trailing: _diagRunning
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.chevron_right),
+            onTap: _diagRunning ? null : () => _runNetDiag(context),
           ),
           const Divider(height: 1, indent: 16, endIndent: 16),
           ListTile(
@@ -355,7 +452,8 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(kAppVersion),
+                // v 前缀与端点版本行统一版本体系观感（UI 评审 quickWin）
+                Text('v$kAppVersion'),
                 Icon(Icons.chevron_right,
                     size: 18, color: scheme.onSurfaceVariant),
               ],
@@ -367,6 +465,8 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
           ListTile(
             leading: const Icon(Icons.dns_outlined),
             title: Text(AppStrings.settingsEndpointVersion),
+            // 只读声明落在它解释的行上（UI 评审 quickWin，替代原页脚）
+            subtitle: Text(AppStrings.settingsEndpointHint),
             // 优先读端点配置仓库当前生效版本（接线后随 assets 加载/远端热更
             // 刷新；仓库未就绪时回落 prefs 快照值）
             trailing: Text(
@@ -374,13 +474,6 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
             ),
           ),
         ]),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-          child: Text(
-            AppStrings.settingsDiagHint,
-            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
-          ),
-        ),
       ],
     );
   }
@@ -401,10 +494,10 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
             const SizedBox(height: 4),
             SelectableText(
               kRepoUrl,
-              style: TextStyle(
-                color: Theme.of(dialogContext).colorScheme.primary,
-                fontSize: 13,
-              ),
+              style: Theme.of(dialogContext)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: Theme.of(dialogContext).colorScheme.primary),
             ),
           ],
         ),
@@ -450,10 +543,10 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
   }
 
   /// 分组容器（主题 H：卡片化分组；Card 全局主题已带 surfaceContainerLow
-  /// 底与 12px 圆角）。
+  /// 底与 12px 圆角）。水平 16 与组标题/AppBar 标题同线（UI 评审对齐统一）。
   Widget _group(List<Widget> children) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
       child: Card(child: Column(children: children)),
     );
   }

@@ -23,12 +23,17 @@ const String kPrefSettingsQualityMode = 'settings.qualityMode';
 const String kPrefSettingsWifiOnly = 'settings.wifiOnly';
 const String kPrefSettingsBackupHistory = 'settings.backupHistory';
 const String kPrefSettingsProxyAddress = 'settings.proxyAddress';
+const String kPrefSettingsProxyEnabled = 'settings.proxyEnabled';
 const String kPrefSettingsAutoCleanDays = 'settings.autoCleanDays';
 const String kPrefSettingsAutoCleanMaxBytes = 'settings.autoCleanMaxBytes';
 
 /// 画质偏好枚举值（§5.4：'highest' | '720p'）
 const String kQualityModeHighest = 'highest';
 const String kQualityMode720p = '720p';
+
+/// 手动代理缺省地址（sing-box 混合端口惯例；开关开启且地址为空时落此值，
+/// 免去用户手填——用户反馈 2026-09-30）
+const String kDefaultProxyAddress = '127.0.0.1:2080';
 
 /// 设置快照（不可变）
 class SettingsState {
@@ -40,6 +45,7 @@ class SettingsState {
     required this.wifiOnly,
     required this.backupHistory,
     required this.proxyAddress,
+    required this.proxyEnabled,
     required this.autoCleanDays,
     required this.autoCleanMaxBytes,
     this.disclaimerAcceptedAt,
@@ -55,9 +61,18 @@ class SettingsState {
   /// 卸载重装后保留历史（自动备份到公共 Downloads，DESIGN §4.7）
   final bool backupHistory;
 
-  /// 手动代理地址（"host:port"，如 127.0.0.1:2080；空 = 跟随系统代理。
-  /// 移动网络无系统代理设置时的根本解法，DESIGN §6.9）
+  /// 手动代理地址（"host:port"，如 127.0.0.1:2080；空 = 回落缺省
+  /// [kDefaultProxyAddress]。移动网络无系统代理设置时的根本解法，
+  /// DESIGN §6.9）
   final String proxyAddress;
+
+  /// 手动代理总开关（用户反馈 2026-09-30）：关闭仅摘除注入（回落系统
+  /// 代理/直连），地址保留——重开免重填。
+  final bool proxyEnabled;
+
+  /// 开关开启时的生效地址：空地址回落 [kDefaultProxyAddress]。
+  String get effectiveProxyAddress =>
+      proxyAddress.trim().isEmpty ? kDefaultProxyAddress : proxyAddress.trim();
   final int autoCleanDays;
   final int autoCleanMaxBytes;
 
@@ -73,6 +88,7 @@ class SettingsState {
     bool? wifiOnly,
     bool? backupHistory,
     String? proxyAddress,
+    bool? proxyEnabled,
     int? autoCleanDays,
     int? autoCleanMaxBytes,
   }) {
@@ -85,6 +101,7 @@ class SettingsState {
       wifiOnly: wifiOnly ?? this.wifiOnly,
       backupHistory: backupHistory ?? this.backupHistory,
       proxyAddress: proxyAddress ?? this.proxyAddress,
+      proxyEnabled: proxyEnabled ?? this.proxyEnabled,
       autoCleanDays: autoCleanDays ?? this.autoCleanDays,
       autoCleanMaxBytes: autoCleanMaxBytes ?? this.autoCleanMaxBytes,
     );
@@ -124,9 +141,33 @@ final Provider<CacheStore> cacheStoreProvider = Provider<CacheStore>((_) => cons
 
 /// 设置控制器：AsyncNotifier，build 时从 shared_preferences 恢复。
 class SettingsController extends AsyncNotifier<SettingsState> {
+  /// 写操作串行门闩：setProxyEnabled/setProxyAddress 均跨 SharedPreferences
+  /// 异步点，无锁并发会以陈旧快照互相覆盖（丢更新）。所有写路径经
+  /// [_serialized] 排队，消除交错窗口（审查发现 #2，2026-09-30）。
+  Future<void> _opGate = Future<void>.value();
+
+  Future<T> _serialized<T>(Future<T> Function() action) {
+    final run = _opGate.then((_) => action());
+    _opGate = run.then((_) {}, onError: (_) {});
+    return run;
+  }
+
   @override
   Future<SettingsState> build() async {
     final prefs = await SharedPreferences.getInstance();
+    // 开关键首次读取（null）时的存量迁移：此前已保存非空地址的用户
+    // 视为开启（升级不改变"地址已生效"的行为）；此前留空者保持关闭。
+    // 迁移结果立即回写固化——否则"清空地址保存"落盘空串后，下次启动
+    // getBool 仍 null 会按空串误判为关闭，代理静默摘除（审查发现 #1）。
+    final savedAddress = prefs.getString(kPrefSettingsProxyAddress);
+    final bool proxyEnabled;
+    final enabledPref = prefs.getBool(kPrefSettingsProxyEnabled);
+    if (enabledPref == null) {
+      proxyEnabled = (savedAddress ?? '').isNotEmpty;
+      await prefs.setBool(kPrefSettingsProxyEnabled, proxyEnabled);
+    } else {
+      proxyEnabled = enabledPref;
+    }
     return SettingsState(
       disclaimerVersion: prefs.getInt(kPrefDisclaimerVersion) ?? 0,
       disclaimerAcceptedAt: prefs.getInt(kPrefDisclaimerAcceptedAt),
@@ -135,7 +176,8 @@ class SettingsController extends AsyncNotifier<SettingsState> {
       qualityMode: prefs.getString(kPrefSettingsQualityMode) ?? kQualityModeHighest,
       wifiOnly: prefs.getBool(kPrefSettingsWifiOnly) ?? false,
       backupHistory: prefs.getBool(kPrefSettingsBackupHistory) ?? true,
-      proxyAddress: prefs.getString(kPrefSettingsProxyAddress) ?? '',
+      proxyAddress: savedAddress ?? kDefaultProxyAddress,
+      proxyEnabled: proxyEnabled,
       autoCleanDays: prefs.getInt(kPrefSettingsAutoCleanDays) ?? 3,
       autoCleanMaxBytes: prefs.getInt(kPrefSettingsAutoCleanMaxBytes) ?? 2 * 1024 * 1024 * 1024,
     );
@@ -199,20 +241,52 @@ class SettingsController extends AsyncNotifier<SettingsState> {
     if (cur != null) state = AsyncData(cur.copyWith(backupHistory: value));
   }
 
-  /// 设置手动代理地址（§6.9）：空串清除（回落系统代理）；返回 false =
-  /// 格式非法。校验与生效同源（core/app_http 的 parseProxyAddress），
-  /// 保存后即时注入运行时代理解析器，无需重启。
-  Future<bool> setProxyAddress(String raw) async {
+  /// 设置手动代理地址（§6.9）：返回 false = 格式非法。校验与生效同源
+  /// （core/app_http 的 parseProxyAddress），保存后按开关状态即时注入
+  /// 运行时代理解析器（开关关闭时仅保存不生效），无需重启。
+  Future<bool> setProxyAddress(String raw) =>
+      _serialized(() async => _setProxyAddress(raw));
+
+  Future<bool> _setProxyAddress(String raw) async {
     final trimmed = raw.trim();
     if (trimmed.isNotEmpty && parseProxyAddress(trimmed) == null) return false;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(kPrefSettingsProxyAddress, trimmed);
     final cur = _current;
     if (cur != null) {
-      state = AsyncData(cur.copyWith(proxyAddress: trimmed));
+      final next = cur.copyWith(proxyAddress: trimmed);
+      state = AsyncData(next);
+      _applyProxy(next);
+    } else {
+      SystemProxy.setManualAddress(trimmed);
     }
-    SystemProxy.setManualAddress(trimmed);
     return true;
+  }
+
+  /// 手动代理总开关（用户反馈 2026-09-30）：关闭仅摘除注入（地址保留，
+  /// 重开免重填）；开启时地址为空则落缺省 [kDefaultProxyAddress]。
+  Future<void> setProxyEnabled(bool value) =>
+      _serialized(() async => _setProxyEnabled(value));
+
+  Future<void> _setProxyEnabled(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(kPrefSettingsProxyEnabled, value);
+    final cur = _current;
+    if (cur == null) return;
+    var next = cur.copyWith(proxyEnabled: value);
+    if (value && cur.proxyAddress.trim().isEmpty) {
+      await prefs.setString(kPrefSettingsProxyAddress, kDefaultProxyAddress);
+      next = next.copyWith(proxyAddress: kDefaultProxyAddress);
+    }
+    state = AsyncData(next);
+    _applyProxy(next);
+  }
+
+  /// 把设置快照注入运行时代理解析器：开关关闭 → null 摘除（回落系统
+  /// 代理/直连）；开启 → 生效地址（空回落缺省）。
+  void _applyProxy(SettingsState s) {
+    SystemProxy.setManualAddress(
+        s.proxyEnabled ? s.effectiveProxyAddress : null);
   }
 
   /// 缓存占用（字节）
@@ -232,9 +306,4 @@ final AsyncNotifierProvider<SettingsController, SettingsState> settingsControlle
 /// 备份开关窄视图（main 装配监听用：仅备份开关变化时通知，不随整状态刷新）
 final Provider<bool> backupHistoryFlagProvider = Provider<bool>((ref) {
   return ref.watch(settingsControllerProvider).value?.backupHistory ?? true;
-});
-
-/// 手动代理地址窄视图（main 装配监听用）。
-final Provider<String> proxyAddressProvider = Provider<String>((ref) {
-  return ref.watch(settingsControllerProvider).value?.proxyAddress ?? '';
 });

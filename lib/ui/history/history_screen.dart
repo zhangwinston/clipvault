@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:clipvault/core/app_strings.dart';
+import 'package:clipvault/core/proxy_image.dart';
 import 'package:clipvault/data/database.dart' show DownloadRecord;
 import 'package:clipvault/player/player_screen.dart';
 import 'package:clipvault/ui/downloads/task_tile.dart';
@@ -145,8 +146,8 @@ class HistoryScreen extends ConsumerWidget {
                               child: const Center(
                                   child: Icon(Icons.movie_outlined, size: 40)),
                             )
-                          : Image.network(
-                              view.thumbUrl!,
+                          : Image(
+                              image: ProxyNetworkImage(view.thumbUrl!),
                               cacheWidth: 640,
                               fit: BoxFit.cover,
                               errorBuilder: (_, _, _) => ColoredBox(

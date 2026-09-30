@@ -5,6 +5,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:clipvault/core/app_strings.dart';
+import 'package:clipvault/core/proxy_image.dart';
 import 'package:clipvault/parse/models.dart';
 
 /// 推文预览卡片
@@ -47,8 +48,8 @@ class PreviewCard extends StatelessWidget {
                         color: scheme.surfaceContainerHighest,
                         child: const Center(child: Icon(Icons.movie_outlined, size: 40)),
                       )
-                    : Image.network(
-                        tweet.thumbnailUrl,
+                    : Image(
+                        image: ProxyNetworkImage(tweet.thumbnailUrl),
                         cacheWidth: 640,
                         fit: BoxFit.cover,
                         errorBuilder: (_, _, _) => ColoredBox(
@@ -82,7 +83,7 @@ class PreviewCard extends StatelessWidget {
                 CircleAvatar(
                   radius: 16,
                   backgroundImage:
-                      tweet.avatarUrl.isEmpty ? null : NetworkImage(tweet.avatarUrl),
+                      tweet.avatarUrl.isEmpty ? null : ProxyNetworkImage(tweet.avatarUrl),
                   onBackgroundImageError: tweet.avatarUrl.isEmpty ? null : (_, _) {},
                   child: tweet.avatarUrl.isEmpty
                       ? Text(tweet.userName.isEmpty ? '?' : tweet.userName.characters.first)
@@ -148,8 +149,8 @@ class RecentParseTile extends StatelessWidget {
                   color: scheme.surfaceContainerHighest,
                   child: const Center(child: Icon(Icons.movie_outlined, size: 18)),
                 )
-              : Image.network(
-                  tweet.thumbnailUrl,
+              : Image(
+                  image: ProxyNetworkImage(tweet.thumbnailUrl),
                   cacheWidth: 128,
                   fit: BoxFit.cover,
                   errorBuilder: (_, _, _) => ColoredBox(
