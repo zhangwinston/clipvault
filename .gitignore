@@ -62,3 +62,6 @@ test/resources/token_corpus.csv
 token.txt
 *.token
 
+
+# CI 签名钥（经 secrets 注入，绝不入库）
+android/app/clipvault-ci.jks

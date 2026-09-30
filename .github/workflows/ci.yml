@@ -83,10 +83,24 @@ jobs:
       - name: 依赖解析
         run: flutter pub get
 
+      - name: 解码 CI 签名钥（无 secret 时自动回落 debug 签名）
+        env:
+          CV_KEYSTORE_B64: ${{ secrets.CV_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$CV_KEYSTORE_B64" ]; then
+            echo "$CV_KEYSTORE_B64" | base64 -d > android/app/clipvault-ci.jks
+          else
+            echo "::warning::未配置 CV_KEYSTORE_B64，本轮使用 debug 签名（签名轮换会破坏备份跨卸载恢复与覆盖安装）"
+          fi
+
       - name: Release APK（仅 arm64）
         # --target-platform 才是 ABI 的真开关：gradle 的 ndk.abiFilters
         # 管不住 Flutter 插件自行塞入的 libflutter/libapp/libmpv（实测
         # armeabi-v7a 仍整包打入）。用户决策：放弃 32 位老机型，单包。
+        env:
+          CV_KEYSTORE_PASSWORD: ${{ secrets.CV_KEYSTORE_PASSWORD }}
+          CV_KEY_ALIAS: ${{ secrets.CV_KEY_ALIAS }}
+          CV_KEY_PASSWORD: ${{ secrets.CV_KEY_PASSWORD }}
         run: flutter build apk --release --target-platform android-arm64
 
       - name: 原生库清单（可见性：确认 sqlite3/media_kit 等 .so 均已打包）

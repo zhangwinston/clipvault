@@ -1,8 +1,10 @@
 package com.clipvault.clipvault
 
 import android.content.ContentValues
+import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.provider.MediaStore
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -29,7 +31,13 @@ class MainActivity : FlutterActivity() {
         // Environment.DIRECTORY_DOWNLOADS 的字面量（"Download"）——Java 静态
         // 字段对 Kotlin const 非编译期常量，这里取字面量保持 const 语义
         const val BACKUP_RELATIVE_DIR = "Download/ClipVault"
+
+        /** SAF 兜底恢复的文件选择请求码 */
+        const val REQ_PICK_BACKUP = 4711
     }
+
+    /** SAF 选择备份文件的挂起通道结果（onActivityResult 回填）。 */
+    private var pendingBackupPick: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(engine: FlutterEngine) {
         super.configureFlutterEngine(engine)
@@ -44,6 +52,21 @@ class MainActivity : FlutterActivity() {
                     "findVideoPathByName" -> result.success(
                         findVideoPathByName(call.argument<String>("name") ?: "")
                     )
+                    "pickAndReadBackup" -> {
+                        // SAF 兜底：跨卸载后旧备份文件所有权不归属新安装
+                        // （签名变化/作用域存储可见性），直读会失败——弹系统
+                        // 文件选择器，用户选中即获临时读授权（ACTION_OPEN_DOCUMENT）
+                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "*/*"
+                            putExtra(
+                                Intent.EXTRA_MIME_TYPES,
+                                arrayOf("application/json", "application/octet-stream"),
+                            )
+                        }
+                        pendingBackupPick = result
+                        startActivityForResult(intent, REQ_PICK_BACKUP)
+                    }
                     else -> result.notImplemented()
                 }
             } catch (e: Exception) {
@@ -149,5 +172,27 @@ class MainActivity : FlutterActivity() {
             if (!c.moveToFirst()) return null
             return c.getString(0)
         }
+    }
+
+    /** SAF 选中的备份文件经临时授权读回（用户取消/读取失败 → null）。 */
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == REQ_PICK_BACKUP) {
+            val pending = pendingBackupPick ?: return
+            pendingBackupPick = null
+            val uri = data?.data
+            if (resultCode != RESULT_OK || uri == null) {
+                pending.success(null)
+                return
+            }
+            try {
+                val text = contentResolver.openInputStream(uri)
+                    ?.use { it.readBytes().toString(Charsets.UTF_8) }
+                pending.success(text)
+            } catch (_: Exception) {
+                pending.success(null)
+            }
+            return
+        }
+        super.onActivityResult(requestCode, resultCode, data)
     }
 }

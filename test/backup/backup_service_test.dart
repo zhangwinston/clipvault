@@ -16,6 +16,9 @@ import 'package:clipvault/data/history_repository.dart';
 /// 假存储：内存字符串 + 可编程的相册路径回查。
 class FakeBackupStore implements BackupStore {
   String? saved;
+
+  /// SAF 兜底通道的模拟载荷（非 null 时 pickAndRead 返回它）
+  String? pickPayload;
   final Map<String, String> galleryPaths;
 
   FakeBackupStore({this.galleryPaths = const {}});
@@ -34,6 +37,9 @@ class FakeBackupStore implements BackupStore {
 
   @override
   Future<String?> findVideoPathByName(String name) async => galleryPaths[name];
+
+  @override
+  Future<String?> pickAndRead() async => pickPayload;
 }
 
 /// 每用例独立的内存仓库（drift 内存库不可复用；沿 db.close() 拆卸惯例）。
@@ -144,6 +150,24 @@ void main() {
     // 手动恢复 → 只合并缺失的
     expect(await auto.restoreManual(), 1);
     expect(await dst.repo.getAll(), hasLength(2));
+  });
+
+  test('直读失败 → SAF 选择器兜底导入（跨卸载所有权断裂场景）', () async {
+    // 导出侧
+    final src = _newRepo();
+    addTearDown(src.db.close);
+    final exportStore = FakeBackupStore();
+    await _insert(src.repo, tweetId: '5555555555555555555');
+    await BackupService(repo: src.repo, store: exportStore).exportNow();
+    final payload = exportStore.saved!;
+
+    // 重装侧：直读 null（所有权不归属新安装），SAF 兜底返回同一载荷
+    final dst = _newRepo();
+    addTearDown(dst.db.close);
+    final store = FakeBackupStore()..pickPayload = payload;
+    final n = await BackupService(repo: dst.repo, store: store).restoreManual();
+    expect(n, 1);
+    expect(await dst.repo.getAll(), hasLength(1));
   });
 
   test('备份缺失/损坏时静默降级（返回 0 / -1，绝不抛）', () async {

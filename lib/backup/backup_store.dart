@@ -23,6 +23,11 @@ abstract class BackupStore {
   /// 读回备份 JSON；不存在/不可读返回 null。
   Future<String?> read();
 
+  /// SAF 兜底：弹系统文件选择器读用户选中的备份（跨卸载后旧备份
+  /// 所有权不归属新安装时的救回通道；用户取消/不支持返回 null）。
+  /// 默认空实现（Android 覆写；iOS/桌面暂无）。
+  Future<String?> pickAndRead() async => null;
+
   /// 按文件名回查相册视频绝对路径（Android 专属能力；其他平台返回 null）。
   /// 文件名约定 {tweetId}_{bitrate}.mp4（引擎转正命名，§4.3）。
   Future<String?> findVideoPathByName(String name);
@@ -66,6 +71,15 @@ class AndroidMediaStoreBackupStore implements BackupStore {
   Future<String?> findVideoPathByName(String name) async {
     try {
       return await _channel.invokeMethod<String>('findVideoPathByName', {'name': name});
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<String?> pickAndRead() async {
+    try {
+      return await _channel.invokeMethod<String>('pickAndReadBackup');
     } catch (_) {
       return null;
     }

@@ -126,10 +126,17 @@ class BackupService {
 
   /// 手动恢复：按 (tweetId, bitrate) 去重合并（设置页入口）。
   /// 返回新导入条数；-1 表示备份不存在或不可读。
+  ///
+  /// 直读失败（跨卸载后旧备份所有权不归属新安装——CI 签名轮换或作用域
+  /// 存储可见性）时自动弹 SAF 文件选择器兜底：用户选中
+  /// Download/ClipVault/clipvault_backup.json 即获临时读授权。
   Future<int> restoreManual() async {
     try {
       if (!await store.isSupported) return -1;
-      final payload = await store.read();
+      var payload = await store.read();
+      if (payload == null || payload.isEmpty) {
+        payload = await store.pickAndRead();
+      }
       if (payload == null || payload.isEmpty) return -1;
       final n = await _importPayload(payload, dedupe: true);
       return n;

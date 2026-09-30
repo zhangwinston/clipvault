@@ -40,11 +40,33 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        // CI 专用签名（§4.7-①固定签名钥）：runner 每次冷启动重新生成 debug
+        // keystore → 每个 continuous APK 签名都不同 → 卸载重装后公共
+        // Downloads 里的备份文件所有权不归属新安装（恢复失效），且无法
+        // 覆盖安装升级（必须先卸载）。CI 经 secrets 注入固定 keystore 到
+        // 本路径；文件不存在（本地构建/未配置）时回落 debug 签名。
+        create("ci") {
+            val ksFile = rootProject.file("app/clipvault-ci.jks")
+            if (ksFile.exists()) {
+                storeFile = ksFile
+                storePassword = System.getenv("CV_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("CV_KEY_ALIAS") ?: "clipvault"
+                keyPassword =
+                    System.getenv("CV_KEY_PASSWORD")
+                        ?: System.getenv("CV_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (rootProject.file("app/clipvault-ci.jks").exists()) {
+                signingConfigs.getByName("ci")
+            } else {
+                // 本地构建/未注入 keystore：debug 签名（侧载可用）
+                signingConfigs.getByName("debug")
+            }
         }
     }
 

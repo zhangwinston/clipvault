@@ -53,4 +53,7 @@ class DocumentsBackupStore implements BackupStore {
 
   @override
   Future<String?> findVideoPathByName(String name) async => null;
+
+  @override
+  Future<String?> pickAndRead() async => null;
 }
