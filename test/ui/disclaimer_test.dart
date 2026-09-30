@@ -46,6 +46,9 @@ class _NullCommands implements DownloadCommands {
 
   @override
   Future<void> retry(int id) async {}
+
+  @override
+  Future<void> deleteRecord(int id) async {}
 }
 
 /// 携带 pending 冷启动分享文本的假接收器（review C1 分享门禁场景）

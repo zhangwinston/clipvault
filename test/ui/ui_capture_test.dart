@@ -1,12 +1,16 @@
 /// UI 视觉评审截图采集（golden 渲染）：把关键屏幕渲染成真实 PNG，
 /// 供 UI 专家 workflow 对着实际界面评估易用性与美观。
 ///
-/// 运行（本机）：flutter test --update-goldens test/ui/ui_capture_test.dart
+/// 运行：flutter test --update-goldens test/ui/ui_capture_test.dart
 /// 产出：test/ui/goldens/*.png（412×916 逻辑分辨率 @2x）
 ///
-/// @Skip：依赖本机字体（C:/Windows/Fonts/msyh.ttc）与绝对路径，
-/// 不进 CI——CI 无中文字体会渲染成豆腐块，断言也必失败。
-@Skip('仅本机视觉评审采集，不进 CI')
+/// 字体：中文用仓库内置 NotoSansSC（test/assets/，OFL 许可随附），
+/// Roboto/MaterialIcons 按 Flutter SDK 相对位置探测——任何环境渲染
+/// 一致，不再依赖采集机系统字体。
+/// @Skip：现存 golden 为旧机器产物（09-29），已滞后 09-30 全部 UI 改动，
+/// 直接比对必失败；需先在有 Flutter 环境执行 --update-goldens 重生成
+/// 后移除本 Skip（judge 裁决 P1，2026-09-30）。
+@Skip('golden 待重生成：旧产物滞后，比对必失败；字体已内置，重生成后移除')
 library;
 
 import 'dart:async';
@@ -42,6 +46,11 @@ import 'package:clipvault/ui/sheet/quality_sheet.dart';
 // 字体加载（golden 默认 Ahem 方块字，必须注册真实字体）
 // ---------------------------------------------------------------------------
 
+/// 仓库内置中文字体（OFL 授权随 git 提交）——不再依赖采集机系统字体：
+/// 此前写死 C:/Windows/Fonts/msyh.ttc，换机即渲染豆腐块，且损坏的
+/// golden 已实际误导过一轮视觉评审（judge 像素级取证，2026-09-30）。
+const String _kCjkFontPath = 'test/assets/NotoSansSC-Regular.otf';
+
 Future<void> _loadFont(String family, List<String> paths) async {
   final loader = FontLoader(family);
   var loaded = 0;
@@ -52,22 +61,44 @@ Future<void> _loadFont(String family, List<String> paths) async {
     loader.addFont(Future.value(bytes.buffer.asByteData()));
     loaded++;
   }
-  if (loaded > 0) await loader.load();
+  // 静默产出豆腐图比失败更糟：一个字体都没加载时明确报错终止，
+  // 替代此前 loaded==0 直接跳过的静默降级（judge 裁决 P1）。
+  if (loaded == 0) {
+    fail('字体 $family 加载 0 个（候选路径：$paths）；继续渲染只会产出'
+        '豆腐块 golden 误导视觉评审');
+  }
+  await loader.load();
+}
+
+/// flutter_tester 可执行文件逐级上溯定位 Flutter SDK 根（含 bin/cache
+/// 的祖先目录），拼出 material_fonts 工件目录——跨平台替代此前写死的
+/// D:/Program/flutter 绝对路径；探测失败返回 null（空候选 → 报错终止）。
+String? _sdkMaterialFontsDir() {
+  var dir = File(Platform.resolvedExecutablePath).parent;
+  for (var i = 0; i < 8; i++) {
+    final cacheDir = Directory(
+        '${dir.path}${Platform.pathSeparator}bin${Platform.pathSeparator}cache');
+    if (cacheDir.existsSync()) {
+      return '${cacheDir.path}${Platform.pathSeparator}artifacts'
+          '${Platform.pathSeparator}material_fonts';
+    }
+    final parent = dir.parent;
+    if (parent.path == dir.path) break;
+    dir = parent;
+  }
+  return null;
 }
 
 Future<void> _loadCaptureFonts() async {
-  const sdk = 'D:/Program/flutter/bin/cache/artifacts/material_fonts';
-  await _loadFont('Roboto', [
-    '$sdk/roboto-regular.ttf',
-    '$sdk/roboto-medium.ttf',
-  ]);
-  await _loadFont('MaterialIcons', ['$sdk/materialicons-regular.otf']);
-  // 中文字体：微软雅黑（回退黑体/宋体）
-  await _loadFont('CaptureCJK', [
-    'C:/Windows/Fonts/msyh.ttc',
-    'C:/Windows/Fonts/simhei.ttf',
-    'C:/Windows/Fonts/simsun.ttc',
-  ]);
+  final mf = _sdkMaterialFontsDir();
+  // 文件名必须与 SDK 工件实际大小写一致（区分大小写文件系统上
+  // roboto-regular.ttf 等全小写会 existsSync 落空 → loaded==0 → fail）。
+  await _loadFont('Roboto', mf == null
+      ? const <String>[]
+      : <String>['$mf/Roboto-Regular.ttf', '$mf/Roboto-Medium.ttf']);
+  await _loadFont('MaterialIcons',
+      mf == null ? const <String>[] : <String>['$mf/MaterialIcons-Regular.otf']);
+  await _loadFont('CaptureCJK', const <String>[_kCjkFontPath]);
 }
 
 ThemeData _captureTheme(Brightness b) => ThemeData(
@@ -168,6 +199,9 @@ class _NoopCommands implements DownloadCommands {
   Future<void> cancel(int id) async {}
   @override
   Future<void> retry(int id) async {}
+
+  @override
+  Future<void> deleteRecord(int id) async {}
 }
 
 const String _kUrl = 'https://x.com/historyinmemes/status/1790637656616943991';

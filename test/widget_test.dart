@@ -77,6 +77,9 @@ class _NullCommands implements DownloadCommands {
 
   @override
   Future<void> retry(int id) async {}
+
+  @override
+  Future<void> deleteRecord(int id) async {}
 }
 
 void main() {

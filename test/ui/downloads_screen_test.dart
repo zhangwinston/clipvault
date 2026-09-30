@@ -37,6 +37,9 @@ class FakeDownloadCommands implements DownloadCommands {
 
   @override
   Future<void> retry(int id) async => log.add('retry:$id');
+
+  @override
+  Future<void> deleteRecord(int id) async => log.add('deleteRecord:$id');
 }
 
 class FakeHistoryCommands implements HistoryCommands {
@@ -253,5 +256,78 @@ void main() {
     await tester.tap(find.widgetWithText(TextButton, AppStrings.actionDelete));
     await tester.pumpAndSettle();
     expect(historyCommands.log, contains('delete:9'));
+  });
+
+  testWidgets('长按终态条目删记录（仅记录视频保留）；进行中行长按不触发', (tester) async {
+    final commands = FakeDownloadCommands();
+    await _pump(
+      tester,
+      items: [
+        _item(
+          id: 9,
+          status: DownloadStatus.completed,
+          bytesDone: 10 * 1024 * 1024,
+          speedBps: 0,
+          etaSec: null,
+          tweetJson: _snapshotJson(),
+        ),
+        _item(
+          id: 10,
+          status: DownloadStatus.canceled,
+          bytesDone: 2 * 1024 * 1024,
+          speedBps: 0,
+          etaSec: null,
+          tweetJson: _snapshotJson(text: '取消行样例'),
+        ),
+        _item(id: 11, status: DownloadStatus.running),
+      ],
+      commands: commands,
+    );
+
+    // 历史区默认折叠：展开（completed 与 canceled 均归历史区）
+    await tester.tap(find.text(AppStrings.dlSectionHistory));
+    await tester.pumpAndSettle();
+
+    // 回归锁定（2026-09-30 终态行改造）：取消行「已取消」全行仅一次
+    // （状态副标识），无停滞进度条（同屏 running 行不受影响，按行断言），
+    // trailing 为「重新下载」+ 免确认删除入口
+    final canceledTile = find.widgetWithText(ListTile, '取消行样例');
+    expect(canceledTile, findsOneWidget);
+    expect(
+      find.descendant(
+        of: canceledTile,
+        matching: find.byType(LinearProgressIndicator),
+      ),
+      findsNothing,
+    );
+    expect(find.textContaining(AppStrings.statusCanceled), findsOneWidget);
+    expect(find.text(AppStrings.actionRedownload), findsOneWidget);
+    expect(find.byTooltip(AppStrings.actionDelete), findsOneWidget);
+
+    // 取消行样例长按 → 仅删记录确认弹窗（与详情页"记录+文件"话术区分）
+    await tester.longPress(find.text('取消行样例'));
+    await tester.pumpAndSettle();
+    expect(find.text(AppStrings.dlDeleteRecordTitle), findsOneWidget);
+    expect(find.text(AppStrings.dlDeleteRecordBody), findsOneWidget);
+
+    // 弹窗取消：不删除
+    await tester
+        .tap(find.widgetWithText(FilledButton, AppStrings.actionCancel));
+    await tester.pumpAndSettle();
+    expect(commands.log, isNot(contains('deleteRecord:10')));
+
+    // 再长按并确认 → deleteRecord 回调 + toast 反馈
+    await tester.longPress(find.text('取消行样例'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, AppStrings.actionDelete));
+    await tester.pumpAndSettle();
+    expect(commands.log, contains('deleteRecord:10'));
+    expect(find.text(AppStrings.toastRecordDeleted), findsOneWidget);
+
+    // 进行中行不接长按删除（先走取消流程）
+    await tester.longPress(find.textContaining(AppStrings.tweetFallbackTitle));
+    await tester.pumpAndSettle();
+    expect(find.text(AppStrings.dlDeleteRecordTitle), findsNothing);
+    expect(commands.log, isNot(contains('deleteRecord:11')));
   });
 }

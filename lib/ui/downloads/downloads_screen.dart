@@ -204,7 +204,12 @@ class _DownloadList extends ConsumerWidget {
         ]),
         _Section(title: AppStrings.dlSectionFailed, count: failed.length, children: [
           for (final item in failed)
-            TaskTile(item: item, commands: commands),
+            TaskTile(
+              item: item,
+              commands: commands,
+              onDeleteRecord: () =>
+                  _confirmDeleteRecord(context, commands, item),
+            ),
         ]),
         // 历史区默认折叠（视觉评审主题 H：已完成只增不减，平铺导致页面
         // 无限增长；折叠后活跃区始终在首屏）
@@ -218,14 +223,52 @@ class _DownloadList extends ConsumerWidget {
                   builder: (_) => HistoryScreen(item: item),
                 ),
               ),
+              onDeleteRecord: () =>
+                  _confirmDeleteRecord(context, commands, item),
             ),
         ]),
       ],
     );
   }
-}
 
-/// 429 冷却横幅：秒级倒计时（截止时刻来自引擎通知流，此前被判空后丢弃）。
+  /// 删除记录确认（用户反馈 2026-09-30）：缺省仅删记录行、视频文件保留
+  /// ——与历史详情页的「记录+文件」彻底删除互补；已取消/失败/已完成行均可删。
+  /// 取消占视觉最强位、删除用 error 前景色（破坏性操作确认惯例同 §4.5）。
+  Future<void> _confirmDeleteRecord(
+    BuildContext context,
+    DownloadCommands commands,
+    TaskItem item,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text(AppStrings.dlDeleteRecordTitle),
+        content: const Text(AppStrings.dlDeleteRecordBody),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text(AppStrings.actionCancel),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(dialogContext).colorScheme.error,
+            ),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text(AppStrings.actionDelete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed ?? false) {
+      await commands.deleteRecord(item.id);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text(AppStrings.toastRecordDeleted)),
+        );
+      }
+    }
+  }
+}
 /// 视觉语言统一为 InfoBanner（secondaryContainer + 圆角 + accent 竖条，
 /// 此前为 tertiaryContainer 蓝紫通栏，脱离品牌色系）。
 class _CooldownBanner extends StatefulWidget {

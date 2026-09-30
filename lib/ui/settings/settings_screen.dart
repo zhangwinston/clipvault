@@ -202,8 +202,12 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
                           color: s.ok ? diagScheme.primary : diagScheme.error,
                         ),
                         const SizedBox(width: 6),
-                        Text('${stageNames[s.stage] ?? s.stage} '
-                            '(${s.elapsed.inMilliseconds}ms)'),
+                        // 阶段行与 bodySmall 正文同框不跨两级（字号统一评审）
+                        Text(
+                          '${stageNames[s.stage] ?? s.stage} '
+                          '(${s.elapsed.inMilliseconds}ms)',
+                          style: Theme.of(ctx).textTheme.bodyMedium,
+                        ),
                       ]),
                       Text(s.detail,
                           style: Theme.of(ctx).textTheme.bodySmall),
@@ -274,10 +278,12 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 值由 SegmentedButton 选中段自表达，标题不再拼接冗余数字
+                // 值由 SegmentedButton 选中段自表达，标题不再拼接冗余数字；
+                // 标题字号回落默认 bodyLarge——此前显式 bodyMedium 与同卡
+                // 兄弟行（ListTile/SwitchListTile 标题）不同级（UI 评审 2026-09-30）
                 Text(
                   AppStrings.settingsConcurrency,
-                  style: Theme.of(context).textTheme.bodyMedium,
+                  style: Theme.of(context).textTheme.bodyLarge,
                 ),
                 const SizedBox(height: 8),
                 SizedBox(
@@ -316,8 +322,13 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
             secondary: const Icon(Icons.vpn_key_outlined),
             title: Text(AppStrings.settingsProxyToggle),
             subtitle: settings.proxyEnabled
-                ? Text(AppStrings.settingsProxyActiveNow +
-                    settings.effectiveProxyAddress)
+                ? Text(
+                    // 长地址（自建网关/IPv6）超副标题宽不换行，尾部截断保单行
+                    AppStrings.settingsProxyActiveNow +
+                        settings.effectiveProxyAddress,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  )
                 : null,
             value: settings.proxyEnabled,
             onChanged: (value) => ref
@@ -365,19 +376,19 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
               children: [
+                // 纯文本按钮（去图标）：≤320dp 窄屏下图标+全角标签超半宽
+                // 致换行、两键不齐；标签自释义无歧义（UI 评审 2026-09-30）
                 Expanded(
-                  child: OutlinedButton.icon(
+                  child: OutlinedButton(
                     onPressed: () => _backupNow(context),
-                    icon: const Icon(Icons.upload_file_outlined),
-                    label: Text(AppStrings.actionBackupNow),
+                    child: Text(AppStrings.actionBackupNow),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: OutlinedButton.icon(
+                  child: OutlinedButton(
                     onPressed: () => _restoreBackup(context),
-                    icon: const Icon(Icons.restore_outlined),
-                    label: Text(AppStrings.actionRestoreBackup),
+                    child: Text(AppStrings.actionRestoreBackup),
                   ),
                 ),
               ],
@@ -389,8 +400,10 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
           ListTile(
             leading: const Icon(Icons.folder_outlined),
             title: Text(AppStrings.settingsCacheUsage),
-            trailing:
-                Text(_cacheBytes == null ? '--' : formatBytes(_cacheBytes!)),
+            trailing: Text(
+              _cacheBytes == null ? '--' : formatBytes(_cacheBytes!),
+              style: _metaValue(context),
+            ),
           ),
           const Divider(height: 1, indent: 16, endIndent: 16),
           Padding(
@@ -441,14 +454,29 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
           ListTile(
             leading: const Icon(Icons.network_check),
             title: Text(AppStrings.actionNetDiag),
-            subtitle: Text(AppStrings.settingsNetDiagHint),
+            // 提示语挪至行尾 meta 徽标（2026-09-30：副标题不挂长文案，
+            // 与版本/端点行行尾弱化样式同体系）；运行期 spinner 顶替提示位
             trailing: _diagRunning
                 ? const SizedBox(
                     width: 16,
                     height: 16,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.chevron_right),
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          AppStrings.settingsNetDiagHint,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: _metaValue(context),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.chevron_right),
+                    ],
+                  ),
             onTap: _diagRunning ? null : () => _runNetDiag(context),
           ),
           const Divider(height: 1, indent: 16, endIndent: 16),
@@ -459,7 +487,7 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 // v 前缀与端点版本行统一版本体系观感（UI 评审 quickWin）
-                Text('v$kAppVersion'),
+                Text('v$kAppVersion', style: _metaValue(context)),
                 Icon(Icons.chevron_right,
                     size: 18, color: scheme.onSurfaceVariant),
               ],
@@ -477,12 +505,22 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
             // 刷新；仓库未就绪时回落 prefs 快照值）
             trailing: Text(
               'v${ref.watch(endpointConfigRepositoryProvider).value?.current.version ?? settings.endpointConfigVersion}',
+              style: _metaValue(context),
             ),
           ),
         ]),
       ],
     );
   }
+
+  /// 行尾数值统一弱化样式（版本号/缓存占用/端点版本）：13px w500 灰、
+  /// 表格数字对齐——行尾 meta 不与行标题争夺视觉权重（UI 评审 2026-09-30）
+  TextStyle _metaValue(BuildContext context) => TextStyle(
+        fontSize: 13,
+        fontWeight: FontWeight.w500,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      );
 
   /// 版本信息点击弹窗：展示 GitHub 仓库链接（可选中复制）+ 一键复制。
   Future<void> _showRepoDialog(BuildContext context) async {

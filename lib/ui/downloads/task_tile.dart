@@ -80,6 +80,10 @@ class TaskItem {
       status == tbl.DownloadStatus.failed || status == tbl.DownloadStatus.canceled;
   bool get isHistory => status == tbl.DownloadStatus.completed;
 
+  /// 终态且可从列表直接删记录（completed/canceled/failed）；
+  /// 进行中/排队/暂停行先走取消流程，不提供直接删行。
+  bool get isDeletable => isHistory || isFailed;
+
   /// 历史条目：未入相册且本地文件在 → 出「重新保存至相册」入口（§4.4）
   bool get needsResave => isHistory && albumSavedAt == null && filePath != null;
 
@@ -140,6 +144,10 @@ abstract class DownloadCommands {
 
   /// 失败/取消后一键重试
   Future<void> retry(int id);
+
+  /// 删除终态记录行（用户反馈 2026-09-30）：缺省仅删记录、视频文件保留；
+  /// .part 断点残片随行清理。已取消/失败/已完成记录均可删。
+  Future<void> deleteRecord(int id);
 }
 
 /// 启动恢复分流入口（P0-2）：经命令层把未完成记录按
@@ -316,6 +324,34 @@ class EngineDownloadCommands implements DownloadCommands {
   @override
   Future<void> retry(int id) =>
       asyncCall(() => _engine.retry(engineIdOf(id)));
+
+  /// 删除下载记录（用户反馈 2026-09-30）：仅删记录行，视频文件
+  /// （filePath）保留；.part 断点残片随行清理（非成品视频，行删后即成
+  /// 缓存统计不可见的孤儿）。引擎内存若仍驻留同 id 任务先移除。
+  @override
+  Future<void> deleteRecord(int id) async {
+    if (_heldBack.remove(id)) {
+      // 挂起任务引擎不知情，直接删行
+    } else if (_engine.task(engineIdOf(id)) != null) {
+      _engine.cancel(engineIdOf(id));
+    }
+    final row = await _repo.deleteById(id);
+    final part = row?.partPath;
+    if (part == null || part.isEmpty) return;
+    // .part 由业务键确定性派生（'{tweetId}_{bitrate}.part'），同键重下的
+    // 活动任务与新删旧行共用同一物理残片——有未终结任务引用时跳过清理，
+    // 否则会 unlink 运行中任务的断点文件致其从零重下（审查发现，工作流
+    // wf_d5643288 对抗验证确认）。
+    final partInUse = _engine.tasks.any((t) =>
+        !t.isSettled && t.partPath != null && t.partPath == part);
+    if (partInUse) return;
+    try {
+      final file = File(part);
+      if (await file.exists()) await file.delete();
+    } catch (_) {
+      // 残片清理失败（占用/权限）忽略，不阻断记录删除
+    }
+  }
 
   /// 启动恢复分流（P0-2，经 [restoreDownloadRecords] 调用）：仅 Wi-Fi 偏好开启且当前非 Wi-Fi 时，
   /// 未完成行挂入 [_heldBack]（与运行时挂起同一语义，Wi-Fi 恢复补交），
@@ -691,6 +727,7 @@ class TaskTile extends StatelessWidget {
     super.key,
     required this.item,
     this.onOpenDetail,
+    this.onDeleteRecord,
     this.commands,
     this.waitingWifi = false,
     this.cooldownActive = false,
@@ -700,6 +737,9 @@ class TaskTile extends StatelessWidget {
 
   /// 历史条目点击进入详情（HistoryScreen）
   final VoidCallback? onOpenDetail;
+
+  /// 终态条目长按删除记录入口（缺省仅删记录，视频保留）
+  final VoidCallback? onDeleteRecord;
 
   /// 命令回调来源（空则只读展示，测试/预览用）
   final DownloadCommands? commands;
@@ -764,7 +804,6 @@ class TaskTile extends StatelessWidget {
     final ratio = item.progressRatio;
     final percent = ratio == null ? '--' : '${(ratio * 100).toInt()}%';
     final running = item.status == tbl.DownloadStatus.running;
-    final canceled = item.status == tbl.DownloadStatus.canceled;
     final statusColor = _statusColor(context);
     return ListTile(
       leading: _thumb(item.thumbUrl),
@@ -790,11 +829,13 @@ class TaskTile extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          // 百分比与进度条同行独立展示（§7.1-3：百分比是一级遥测信息）；
-          // 进度条加粗到 8dp + 圆角 + 状态语义色（此前 4dp 发丝级、深色
-          // 轨道对背景仅 1.99:1）；
-          // 合成语义描述供读屏用户一次听懂进度（替代零散文本朗读）。
-          Semantics(
+          // 进度条是「进行中」的可供性——终态行（已取消/失败）不渲染停滞
+          // 半截进度条与百分比（与终态语义直接矛盾，用户反馈 2026-09-30
+          // 「很难理解」）；进度降级为遥测行内的数据百分比。
+          // 活动态保留：百分比与进度条同行独立展示（§7.1-3）；
+          // 进度条 8dp + 圆角 + 状态语义色；合成语义描述供读屏一次听懂。
+          if (!item.isFailed)
+            Semantics(
             label: ratio == null
                 ? null
                 : '已下载百分之${(ratio * 100).toInt()}'
@@ -838,6 +879,10 @@ class TaskTile extends StatelessWidget {
                   text: '${formatBytes(item.bytesDone)}'
                       '${item.bytesTotal == null ? '' : ' / ${formatBytes(item.bytesTotal!)}'}',
                 ),
+                // 终态行进度条已不渲染（见上）——百分比并入遥测行作
+                // 纯数据陈述（「24.5 MB / 66.2 MB · 37%」）
+                if (item.isFailed && ratio != null)
+                  TextSpan(text: ' · ${(ratio * 100).toInt()}%'),
                 if (running) ...[
                   const TextSpan(text: ' · '),
                   TextSpan(
@@ -874,22 +919,22 @@ class TaskTile extends StatelessWidget {
               fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
-          if (canceled || (item.isFailed && item.errorCode != null)) ...[
+          // 底部行只承载失败原因（有信息增量）；取消态此前在此重复渲染
+          // 「已取消」（状态词已表达）——删除，全行只出现一次（2026-09-30）
+          if (item.status == tbl.DownloadStatus.failed &&
+              item.errorCode != null) ...[
             const SizedBox(height: 2),
             Text(
-              // 用户主动取消不是错误：普通色「已取消」，不用 error 红。
-              canceled
-                  ? AppStrings.statusCanceled
-                  : downloadErrorMessage(item.errorCode),
-              style: TextStyle(
-                fontSize: 12,
-                color: canceled ? scheme.onSurfaceVariant : scheme.error,
-              ),
+              downloadErrorMessage(item.errorCode),
+              style: TextStyle(fontSize: 12, color: scheme.error),
             ),
           ],
         ],
       ),
-      isThreeLine: true,
+      // 行高随内容：活动态三行（状态/进度/遥测）；终态两行（状态/遥测）
+      isThreeLine: item.isActive || item.isQueued,
+      // 终态行（失败/已取消）长按删记录；进行中/排队行不接（先走取消）
+      onLongPress: item.isDeletable ? onDeleteRecord : null,
       trailing: _trailingActions(context),
     );
   }
@@ -908,6 +953,8 @@ class TaskTile extends StatelessWidget {
       ),
       trailing: const Icon(Icons.chevron_right),
       onTap: onOpenDetail,
+      // 长按 = 仅删记录（视频保留）；点击进详情可彻底删除（记录+文件）
+      onLongPress: onDeleteRecord,
     );
   }
 
@@ -974,10 +1021,13 @@ class TaskTile extends StatelessWidget {
         return _cancelButton(context, cmds);
       case tbl.DownloadStatus.failed:
       case tbl.DownloadStatus.canceled:
-        // 重试从裸图标升级为文字按钮（主题 D：点按目标与语义同时放大，
-        // 新手不再需要猜 ⟳ 图标含义）。
-        return Tooltip(
-          message: AppStrings.actionRetry,
+        // 重试从裸图标升级为文字按钮（主题 D）；取消后的续传语义是
+        // 「重新下载」而非「重试」（取消是用户主动行为，2026-09-30）
+        final label = item.status == tbl.DownloadStatus.canceled
+            ? AppStrings.actionRedownload
+            : AppStrings.actionRetry;
+        final retryEntry = Tooltip(
+          message: label,
           child: FilledButton.tonalIcon(
             style: FilledButton.styleFrom(
               visualDensity: VisualDensity.compact,
@@ -986,8 +1036,26 @@ class TaskTile extends StatelessWidget {
             ),
             onPressed: () => cmds.retry(item.id),
             icon: const Icon(Icons.refresh, size: 18),
-            label: const Text(AppStrings.actionRetry),
+            label: Text(label),
           ),
+        );
+        if (item.status == tbl.DownloadStatus.failed) return retryEntry;
+        // 已取消行另挂独立删除按钮：仅删记录的轻量操作免确认弹窗
+        // （judge 裁决 2026-09-30），视频文件保留；彻底删除仍走长按
+        // 确认路径（onDeleteRecord）与历史详情页，两档语义不混淆。
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            retryEntry,
+            const SizedBox(width: 4),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              tooltip: AppStrings.actionDelete,
+              color: Theme.of(context).colorScheme.error,
+              onPressed: () => cmds.deleteRecord(item.id),
+              icon: const Icon(Icons.delete_outline),
+            ),
+          ],
         );
       default:
         return null;

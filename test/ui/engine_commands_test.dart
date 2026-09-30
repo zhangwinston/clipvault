@@ -10,7 +10,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
-import 'package:drift/drift.dart' show DatabaseConnection;
+import 'package:drift/drift.dart' show DatabaseConnection, Value;
 import 'package:drift/native.dart' show NativeDatabase;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -330,5 +330,86 @@ void main() {
     // 404 立即失败即证明已交引擎调度（而非被挂起）
     final task = engine.task(EngineDownloadCommands.engineIdOf(row.id));
     expect(task?.isSettled, isTrue);
+  });
+
+  test('删除记录（用户反馈 2026-09-30）：仅删行与断点残片，视频文件保留', () async {
+    final engine = newEngine(_hang);
+    final commands = EngineDownloadCommands(engine, repo);
+    addTearDown(commands.dispose);
+    addTearDown(() => engine.dispose());
+
+    final row = await repo.createTask(DownloadRecordsCompanion.insert(
+      tweetId: '1790637656616943993',
+      variantUrl: 'https://video.twimg.com/x.mp4',
+      contentType: 'mp4',
+      bitrate: 2176000,
+      qualityLabel: '720p (HD)',
+      status: DownloadStatus.completed.name,
+      tweetJson: '{"tweetId":"1790637656616943993"}',
+    ));
+    // 沙盒成品视频 + 断点残片（取消/失败场景遗留）
+    final video = File('${tmpDir.path}/done.mp4')..writeAsStringSync('v');
+    final part = File('${tmpDir.path}/done.mp4.part')..writeAsStringSync('p');
+    await repo.apply(
+      row.id,
+      DownloadRecordsCompanion(
+        filePath: Value(video.path),
+        partPath: Value(part.path),
+      ),
+    );
+
+    await commands.deleteRecord(row.id);
+
+    expect(await repo.getById(row.id), isNull);
+    expect(await video.exists(), isTrue, reason: '成品视频文件保留');
+    expect(await part.exists(), isFalse, reason: '断点残片随行清理');
+
+    // 幂等：重复删除（行已不存在）不抛异常
+    await commands.deleteRecord(row.id);
+  });
+
+  test('删除记录：同键重下任务运行中引用 .part 时不清理残片（守卫回归）', () async {
+    final engine = newEngine(_hang);
+    final commands = EngineDownloadCommands(engine, repo);
+    addTearDown(commands.dispose);
+    addTearDown(() => engine.dispose());
+
+    // 行1：已取消旧行，partPath 已落库（取消语义保留断点）
+    final part = File('${tmpDir.path}/1790637656616943994_2176000.part')
+      ..writeAsStringSync('p');
+    final oldRow = await repo.createTask(DownloadRecordsCompanion.insert(
+      tweetId: '1790637656616943994',
+      variantUrl: 'https://video.twimg.com/x.mp4',
+      contentType: 'mp4',
+      bitrate: 2176000,
+      qualityLabel: '720p (HD)',
+      status: DownloadStatus.canceled.name,
+      tweetJson: '{"tweetId":"1790637656616943994"}',
+    ));
+    await repo.apply(oldRow.id,
+        DownloadRecordsCompanion(partPath: Value(part.path)));
+
+    // 行2：同 (tweetId, bitrate) 重下，paused 未终结且携带同一 .part
+    // （.part 路径由业务键确定性派生，与行 id 无关）
+    final activeRow = await repo.createTask(DownloadRecordsCompanion.insert(
+      tweetId: '1790637656616943994',
+      variantUrl: 'https://video.twimg.com/x.mp4',
+      contentType: 'mp4',
+      bitrate: 2176000,
+      qualityLabel: '720p (HD)',
+      status: DownloadStatus.paused.name,
+      tweetJson: '{"tweetId":"1790637656616943994"}',
+    ));
+    await repo.apply(activeRow.id,
+        DownloadRecordsCompanion(partPath: Value(part.path)));
+    await commands.restoreRecords([await repo.getById(activeRow.id)!]);
+
+    // 删除旧取消行：行删除，但活动任务引用中的 .part 不被 unlink
+    await commands.deleteRecord(oldRow.id);
+
+    expect(await repo.getById(oldRow.id), isNull);
+    expect(await repo.getById(activeRow.id), isNotNull);
+    expect(await part.exists(), isTrue,
+        reason: '活动任务引用中的断点残片不清理');
   });
 }

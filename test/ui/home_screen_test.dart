@@ -124,6 +124,9 @@ class FakeDownloadCommands implements DownloadCommands {
 
   @override
   Future<void> retry(int id) async => log.add('retry:$id');
+
+  @override
+  Future<void> deleteRecord(int id) async => log.add('deleteRecord:$id');
 }
 
 /// 端点配置仓库假实现：只控制 onEndpointDrift 返回值（§6.7 漂移刷新链路）

@@ -23,8 +23,10 @@ class ParseErrorView extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final spec = _specFor(error);
-    // 主题 F：错误语义强化——errorContainer 底 + onErrorContainer 前景 +
-    // 图标放大入圆形底座（此前白卡 + 24px 小红图标，扫一眼难意识到失败）。
+    // 主题 F：失败一眼可辨（errorContainer 底保留）；红色强调收敛为单一
+    // 信号（28px 裸色图标）——此前 40px 红圆底座 + 深红大标题 + 实心红
+    // 按钮四重叠加，新装无代理首次解析必然 E02，红卡占满首页被感知为
+    // 「难看且没有必要的大红字提示」（用户反馈 2026-09-30）。
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       color: scheme.errorContainer,
@@ -36,23 +38,16 @@ class ParseErrorView extends StatelessWidget {
           children: [
             Row(
               children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: scheme.error,
-                    shape: BoxShape.circle,
-                  ),
-                  child:
-                      Icon(spec.icon, size: 22, color: scheme.onErrorContainer),
-                ),
+                Icon(spec.icon, size: 28, color: scheme.error),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     spec.message,
                     style: TextStyle(
-                      color: scheme.onErrorContainer,
-                      fontSize: 16,
+                      color: scheme.onSurface,
+                      // 14 → 15：红色强调收敛后主文案偏小，visual 视角折中值
+                      // （judge 采纳，2026-09-30）；仍低于默认 16px 标题级。
+                      fontSize: 15,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -65,17 +60,13 @@ class ParseErrorView extends StatelessWidget {
                 spec.hint!,
                 style: TextStyle(
                   fontSize: 13,
-                  color: scheme.onErrorContainer.withValues(alpha: 0.85),
+                  color: scheme.onSurfaceVariant,
                 ),
               ),
             ],
             if (spec.retryable && onRetry != null) ...[
               const SizedBox(height: 14),
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: scheme.error,
-                  foregroundColor: scheme.onErrorContainer,
-                ),
+              FilledButton.tonalIcon(
                 onPressed: onRetry,
                 icon: const Icon(Icons.refresh, size: 18),
                 label: const Text(AppStrings.actionRetry),

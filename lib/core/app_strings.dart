@@ -149,6 +149,10 @@ abstract final class AppStrings {
   static const String actionResume = '继续';
   static const String actionCancel = '取消';
   static const String actionRetry = '重试';
+
+  /// 已取消任务的再次下载入口（区别于失败后的「重试」——取消是用户
+  /// 主动行为，续传入口语义为重新下载，UI 评审 2026-09-30）
+  static const String actionRedownload = '重新下载';
   static const String actionDelete = '删除';
   static const String actionShare = '分享';
   static const String actionPlay = '播放';
@@ -163,6 +167,13 @@ abstract final class AppStrings {
   /// 删除确认文案（明示会一并删除本地文件；相册副本不受影响）。
   static const String deleteConfirm =
       '将删除该记录及本地视频文件；已保存至系统相册的副本不受影响。';
+
+  /// 删除下载记录（仅记录，用户反馈 2026-09-30）：明示视频文件保留，
+  /// 彻底删除走历史详情页——两档删除语义互不混淆。
+  static const String dlDeleteRecordTitle = '删除下载记录';
+  static const String dlDeleteRecordBody =
+      '仅删除这条记录，已下载的视频文件保留不受影响；如需同时删除视频，请到历史详情页操作。';
+  static const String toastRecordDeleted = '记录已删除';
 
   /// 分享不可用反馈（文件异常等场景）。
   static const String shareUnavailable = '分享功能暂不可用';
@@ -221,8 +232,8 @@ abstract final class AppStrings {
   static const String settingsSectionDiag = '关于';
   static const String settingsVersion = '版本信息';
   static const String settingsEndpointVersion = '解析服务配置';
-  static const String settingsEndpointHint = '由解析服务下发，仅作技术只读展示';
-  static const String settingsNetDiagHint = '检测代理 / DNS / TCP / HTTPS 链路';
+  static const String settingsEndpointHint = '由解析服务下发，只读展示';
+  static const String settingsNetDiagHint = '检测代理 / DNS / HTTPS 链路';
   static const String diagRunning = '正在诊断…';
 
   /// 版本信息点击弹窗：仓库链接展示与复制。
@@ -327,8 +338,7 @@ abstract final class AppStrings {
   static const String settingsSectionBackup = '备份';
   /// 设置项：自动备份开关标题/副标题。
   static const String settingsBackupKeep = '卸载重装后保留历史';
-  static const String settingsBackupKeepHint =
-      '自动备份到「下载/ClipVault」，重装后自动恢复';
+  static const String settingsBackupKeepHint = '自动备份到「下载/ClipVault」';
 
   /// 设置项：手动操作按钮与结果提示。
   static const String actionBackupNow = '立即备份';
@@ -348,7 +358,7 @@ abstract final class AppStrings {
   static const String settingsProxyManualLabel = '代理地址';
   static const String settingsProxyManualHint = '如 127.0.0.1:2080';
   static const String settingsProxyManualHelper =
-      'TUN/VPN 模式无需开启，常见端口点 ⓘ 查看';
+      'TUN/VPN 模式无需开启，端口点 ⓘ 查看';
   static const String settingsProxyHelpTitle = '代理地址说明';
   static const String settingsProxyPortsTable =
       '移动网络下系统无代理设置：缺省 127.0.0.1:2080（sing-box 混合端口），可改 Clash 7890 / v2rayN 10808 等';
