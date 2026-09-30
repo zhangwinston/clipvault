@@ -49,8 +49,8 @@ class PreviewCard extends StatelessWidget {
                         child: const Center(child: Icon(Icons.movie_outlined, size: 40)),
                       )
                     : Image(
-                        image: ProxyNetworkImage(tweet.thumbnailUrl),
-                        cacheWidth: 640,
+                        image: ProxyNetworkImage(tweet.thumbnailUrl,
+                            cacheWidth: 640),
                         fit: BoxFit.cover,
                         errorBuilder: (_, _, _) => ColoredBox(
                           color: scheme.surfaceContainerHighest,
@@ -150,8 +150,7 @@ class RecentParseTile extends StatelessWidget {
                   child: const Center(child: Icon(Icons.movie_outlined, size: 18)),
                 )
               : Image(
-                  image: ProxyNetworkImage(tweet.thumbnailUrl),
-                  cacheWidth: 128,
+                  image: ProxyNetworkImage(tweet.thumbnailUrl, cacheWidth: 128),
                   fit: BoxFit.cover,
                   errorBuilder: (_, _, _) => ColoredBox(
                     color: scheme.surfaceContainerHighest,

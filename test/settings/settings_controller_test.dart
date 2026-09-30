@@ -32,8 +32,9 @@ void main() {
     SharedPreferences.setMockInitialValues({
       kPrefSettingsProxyAddress: '192.168.1.5:8888',
     });
+    // ProviderContainer.dispose() 返回 void（Riverpod 3.4）：本用例手工
+    // 释放并重建第二容器验证"重启"，故不挂 addTearDown（防双重 dispose）
     final container = ProviderContainer();
-    addTearDown(container.dispose);
     final s = await pump(container);
     expect(s.proxyEnabled, isTrue);
     expect(s.proxyAddress, '192.168.1.5:8888');
@@ -45,10 +46,9 @@ void main() {
     await container
         .read(settingsControllerProvider.notifier)
         .setProxyAddress('');
-    await container.dispose();
+    container.dispose();
     SystemProxy.debugReset();
     final container2 = ProviderContainer();
-    addTearDown(container2.dispose);
     final s2 = await pump(container2);
     expect(s2.proxyEnabled, isTrue);
     expect(s2.proxyAddress, '');

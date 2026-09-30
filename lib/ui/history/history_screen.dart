@@ -147,8 +147,8 @@ class HistoryScreen extends ConsumerWidget {
                                   child: Icon(Icons.movie_outlined, size: 40)),
                             )
                           : Image(
-                              image: ProxyNetworkImage(view.thumbUrl!),
-                              cacheWidth: 640,
+                              image:
+                                  ProxyNetworkImage(view.thumbUrl!, cacheWidth: 640),
                               fit: BoxFit.cover,
                               errorBuilder: (_, _, _) => ColoredBox(
                                 color: scheme.surfaceContainerHighest,

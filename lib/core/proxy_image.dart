@@ -11,7 +11,7 @@
 library;
 
 import 'dart:typed_data' show Uint8List;
-import 'dart:ui' show Codec;
+import 'dart:ui' show Codec, ImmutableBuffer;
 
 import 'package:dio/dio.dart' show Dio, Options, ResponseType;
 import 'package:flutter/foundation.dart' show SynchronousFuture;
@@ -21,10 +21,15 @@ import 'package:clipvault/core/app_http.dart' show createAppDio;
 
 /// 网络图片加载器：URL 直连改为统一 HTTP 出口（手动/系统代理随 §6.9 开关）。
 class ProxyNetworkImage extends ImageProvider<ProxyNetworkImage> {
-  const ProxyNetworkImage(this.url, {this.scale = 1.0});
+  const ProxyNetworkImage(this.url, {this.scale = 1.0, this.cacheWidth});
 
   final String url;
   final double scale;
+
+  /// 解码降采样宽度（null = 原尺寸）。基座 [Image] 构造器在 CI 锁定的
+  /// Flutter 3.47 已无 cacheWidth 具名参数（Image.network 系列仍在），
+  /// 降采样语义收进 Provider 的 decode 阶段实现。
+  final int? cacheWidth;
 
   /// 全局共享 Dio（连接复用；findProxy 回调读 SystemProxy 实时缓存，
   /// 代理开关切换后新请求即走新设置）
@@ -52,7 +57,10 @@ class ProxyNetworkImage extends ImageProvider<ProxyNetworkImage> {
     if (data == null) {
       throw StateError('图片响应体为空：${key.url}');
     }
-    return decode(Uint8List.fromList(data));
+    // ImageDecoderCallback 入参是 ImmutableBuffer（非 Uint8List）
+    final buffer =
+        await ImmutableBuffer.fromUint8List(Uint8List.fromList(data));
+    return decode(buffer, cacheWidth: key.cacheWidth);
   }
 
   @override
@@ -60,11 +68,13 @@ class ProxyNetworkImage extends ImageProvider<ProxyNetworkImage> {
       identical(this, other) ||
       other is ProxyNetworkImage &&
           other.url == url &&
-          other.scale == scale;
+          other.scale == scale &&
+          other.cacheWidth == cacheWidth;
 
   @override
-  int get hashCode => Object.hash(url, scale);
+  int get hashCode => Object.hash(url, scale, cacheWidth);
 
   @override
-  String toString() => 'ProxyNetworkImage("$url", scale: $scale)';
+  String toString() =>
+      'ProxyNetworkImage("$url", scale: $scale, cacheWidth: $cacheWidth)';
 }

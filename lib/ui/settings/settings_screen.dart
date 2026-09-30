@@ -56,6 +56,10 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
 
   /// 手动代理输入控制器（initState 由设置快照初始化）
   final TextEditingController _proxyCtrl = TextEditingController();
+
+  /// 地址框焦点（didUpdateWidget 判断"用户是否正在编辑"用；
+  /// hasFocus 在 FocusNode 上，TextEditingController 无此 getter）
+  final FocusNode _proxyFocus = FocusNode();
   String? _proxyError;
 
   @override
@@ -73,7 +77,7 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
   void didUpdateWidget(covariant _SettingsBody oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.settings.proxyAddress != oldWidget.settings.proxyAddress &&
-        (!_proxyCtrl.hasFocus || _proxyCtrl.text.trim().isEmpty)) {
+        (!_proxyFocus.hasFocus || _proxyCtrl.text.trim().isEmpty)) {
       _proxyCtrl.text = widget.settings.proxyAddress;
       if (_proxyError != null) setState(() => _proxyError = null);
     }
@@ -82,6 +86,7 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
   @override
   void dispose() {
     _proxyCtrl.dispose();
+    _proxyFocus.dispose();
     super.dispose();
   }
 
@@ -326,6 +331,7 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
             child: TextField(
               controller: _proxyCtrl,
+              focusNode: _proxyFocus,
               decoration: InputDecoration(
                 labelText: AppStrings.settingsProxyManualLabel,
                 hintText: AppStrings.settingsProxyManualHint,
