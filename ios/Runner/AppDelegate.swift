@@ -55,7 +55,9 @@ import UIKit
   }
 
   /// 读系统级代理（当前网络的 Wi-Fi 手动代理）。
-  /// 优先 HTTPS 专属配置，回落 HTTP 配置（CONNECT 隧道共用）；未启用 → nil。
+  /// iOS 系统设置只有统一 HTTP 代理（无 HTTPS 分开配置——那组
+  /// kCFNetworkProxiesHTTPS* 常量是 macOS 专属，iOS 上不可用）；
+  /// HTTPS 流量经 CONNECT 隧道同路走。未启用 → nil。
   private static func systemProxySettings() -> [String: Any]? {
     guard
       let settings = CFNetworkCopySystemProxySettings()?
@@ -64,16 +66,6 @@ import UIKit
       return nil
     }
 
-    // HTTPS 专属（部分代理工具会分别配置）
-    if let host = settings[kCFNetworkProxiesHTTPSProxy as String] as? String,
-      !host.isEmpty,
-      let port = settings[kCFNetworkProxiesHTTPSPort as String] as? Int,
-      port > 0
-    {
-      return ["host": host, "port": port]
-    }
-
-    // HTTP（HTTPS 经 CONNECT 隧道同路走）
     if let enabled = settings[kCFNetworkProxiesHTTPEnable as String] as? Int,
       enabled != 0,
       let host = settings[kCFNetworkProxiesHTTPProxy as String] as? String,
