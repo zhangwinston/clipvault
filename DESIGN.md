@@ -296,6 +296,12 @@ D:/Program/xdown/
 
 **导入语义**：活动态（queued/running/paused）一律归 **canceled**（无 .part 可续，绝不自动重下，用户可从历史重试）；手动恢复按 (tweetId, bitrate) 去重合并；备份损坏/缺失静默降级不抛。设置页「备份与恢复」：自动备份开关（默认开）+ 立即备份/从备份恢复。
 
+**2026-09-30 修复：跨卸载恢复失效的双根因与加固**
+
+用户实测「开关已开但卸载重装后历史丢失」，根因有二：
+1. **CI 签名轮换**：runner 每次冷启动重新生成 debug keystore → 每个 continuous APK 签名不同 → 重装后系统视为「另一个 App」，公共 Downloads 备份文件所有权不归属新安装 → 直读静默失败（同根因导致无法覆盖安装）。修复：`signingConfigs.ci`——检测到 `android/app/clipvault-ci.jks`（CI 经 `CV_KEYSTORE_*` secrets 注入固定钥）即用之，否则回落 debug。注意 openssl 3.x 默认加密算法 Java keystore 读取器不认（password incorrect），须 `pkcs12 -export -legacy` 兼容打包。
+2. **作用域存储可见性**：跨卸载后非媒体文件对新安装本就不可见/不可读。兜底：`restoreManual` 直读失败 → 自动弹 SAF 文件选择器（`ACTION_OPEN_DOCUMENT`，用户选中即获临时读授权），任何签名/所有权断裂均可救回 `Download/ClipVault/clipvault_backup.json`。
+
 ---
 
 ## ⑤ 数据模型（Dart 类字段级）与本地存储
