@@ -6,8 +6,9 @@
 ///
 /// 机制：
 /// - [SystemProxy.refresh] 经 `clipvault/network` 通道读系统代理
-///   （Android 读应用进程的 http.proxyHost/http.proxyPort JVM 属性，
-///   Wi-Fi 手动代理由框架注入；iOS 通道未实现 → 回落直连，见 DESIGN §6.9）；
+///   （Android 读应用进程的 http.proxyHost/http.proxyPort JVM 属性；
+///   iOS 读 CFNetworkCopySystemProxySettings 的 Wi-Fi 手动代理，见
+///   DESIGN §6.9）；
 /// - [createAppDio]/[configureProxy] 把缓存值接入 HttpClient.findProxy，
 ///   HTTPS 走 CONNECT 隧道由 dart:io 自动处理；
 /// - 刷新时机：启动引导 + App 回前台（剪贴板观察者 resumed 分支顺带刷新）。

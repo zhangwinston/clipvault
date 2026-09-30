@@ -517,7 +517,7 @@ GET https://api.fxtwitter.com/status/{id}     （官方路径；P2 方案所写 
 
 **方案**（`lib/core/app_http.dart`）：全项目 HTTP 出口统一 `createAppDio()` 工厂；`SystemProxy` 经 `clipvault/network` 通道（MainActivity）读应用进程 `http.proxyHost/proxyPort`（Wi-Fi 手动代理由框架注入）→ 注入 `HttpClient.findProxy`（HTTPS CONNECT 隧道自动处理）。刷新时机：启动 + 回前台。通道未实现（iOS/桌面/测试）→ 直连降级不抛。
 
-**边界**：① PAC 自动配置脚本不支持（dart:io 限制）——PAC 用户改手动代理或 VPN 模式；② VPN(TUN) 模式代理在 IP 层透明转发无需本机制，但**分应用代理模式需把 ClipVault 加入代理名单**；③ iOS 系统代理读取待接原生通道（当前直连）。
+**边界**：① PAC 自动配置脚本不支持（dart:io 限制）——PAC 用户改手动代理或 VPN 模式；② VPN(TUN) 模式代理在 IP 层透明转发无需本机制，但**分应用代理模式需把 ClipVault 加入代理名单**；③ iOS 已接 `CFNetworkCopySystemProxySettings`（HTTPS 专属配置优先、回落 HTTP，AppDelegate.swift），与 Android 同语义。
 
 ## ⑦ UI 信息架构与导航流
 
