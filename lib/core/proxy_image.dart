@@ -21,15 +21,10 @@ import 'package:clipvault/core/app_http.dart' show createAppDio;
 
 /// 网络图片加载器：URL 直连改为统一 HTTP 出口（手动/系统代理随 §6.9 开关）。
 class ProxyNetworkImage extends ImageProvider<ProxyNetworkImage> {
-  const ProxyNetworkImage(this.url, {this.scale = 1.0, this.cacheWidth});
+  const ProxyNetworkImage(this.url, {this.scale = 1.0});
 
   final String url;
   final double scale;
-
-  /// 解码降采样宽度（null = 原尺寸）。基座 [Image] 构造器在 CI 锁定的
-  /// Flutter 3.47 已无 cacheWidth 具名参数（Image.network 系列仍在），
-  /// 降采样语义收进 Provider 的 decode 阶段实现。
-  final int? cacheWidth;
 
   /// 全局共享 Dio（连接复用；findProxy 回调读 SystemProxy 实时缓存，
   /// 代理开关切换后新请求即走新设置）
@@ -57,24 +52,32 @@ class ProxyNetworkImage extends ImageProvider<ProxyNetworkImage> {
     if (data == null) {
       throw StateError('图片响应体为空：${key.url}');
     }
-    // ImageDecoderCallback 入参是 ImmutableBuffer（非 Uint8List）
+    // ImageDecoderCallback 入参是 ImmutableBuffer（非 Uint8List），且 3.47
+    // 已无 cacheWidth 具名参数——降采样经 [proxyNetworkImage] 的 ResizeImage
+    // 包装注入，此处仅按位置调用 decode，对回调签名演进免疫。
     final buffer =
         await ImmutableBuffer.fromUint8List(Uint8List.fromList(data));
-    return decode(buffer, cacheWidth: key.cacheWidth);
+    return decode(buffer);
   }
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is ProxyNetworkImage &&
-          other.url == url &&
-          other.scale == scale &&
-          other.cacheWidth == cacheWidth;
+      other is ProxyNetworkImage && other.url == url && other.scale == scale;
 
   @override
-  int get hashCode => Object.hash(url, scale, cacheWidth);
+  int get hashCode => Object.hash(url, scale);
 
   @override
-  String toString() =>
-      'ProxyNetworkImage("$url", scale: $scale, cacheWidth: $cacheWidth)';
+  String toString() => 'ProxyNetworkImage("$url", scale: $scale)';
+}
+
+/// 带 decode 降采样的构造入口（等价旧 `Image(cacheWidth:)` 语义）：
+/// 经 [ResizeImage] 包装——与基座 Image.network 系列同款机制，其内部
+/// 与所在版本的 ImageDecoderCallback 签名自洽；未指定宽度则原样直出
+/// [ProxyNetworkImage]（头像等原尺寸场景）。
+ImageProvider<Object> proxyNetworkImage(String url, {int? cacheWidth}) {
+  return cacheWidth == null
+      ? ProxyNetworkImage(url)
+      : ResizeImage.resizeIfNeeded(cacheWidth, null, ProxyNetworkImage(url));
 }

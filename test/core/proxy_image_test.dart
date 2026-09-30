@@ -26,13 +26,12 @@ void main() {
     expect(a.hashCode == b.hashCode, isFalse);
   });
 
-  test('cacheWidth 参与相等性（同 URL 不同降采样宽度不共缓存条目）', () {
-    const a = ProxyNetworkImage('https://a/x.jpg', cacheWidth: 640);
-    const b = ProxyNetworkImage('https://a/x.jpg', cacheWidth: 128);
-    const c = ProxyNetworkImage('https://a/x.jpg', cacheWidth: 640);
-    expect(a == b, isFalse);
-    expect(a == c, isTrue);
-    expect(a.hashCode == b.hashCode, isFalse);
+  test('proxyNetworkImage：指定 cacheWidth 经 ResizeImage 封装，未指定原样直出', () {
+    final plain = proxyNetworkImage('https://a/x.jpg');
+    expect(plain, isA<ProxyNetworkImage>());
+    final scaled = proxyNetworkImage('https://a/x.jpg', cacheWidth: 640);
+    expect(scaled, isNot(isA<ProxyNetworkImage>()));
+    expect(identical(plain, scaled), isFalse);
   });
 
   test('obtainKey 同步返回自身（SynchronousFuture，无额外异步开销）', () async {

@@ -920,7 +920,7 @@ class TaskTile extends StatelessWidget {
         child: url == null
             ? const Center(child: Icon(Icons.movie_outlined, size: 20))
             : Image(
-                image: ProxyNetworkImage(url, cacheWidth: 144),
+                image: proxyNetworkImage(url, cacheWidth: 144),
                 fit: BoxFit.cover,
                 errorBuilder: (_, _, _) =>
                     const Center(child: Icon(Icons.broken_image_outlined, size: 20)),
