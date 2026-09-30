@@ -23,6 +23,7 @@ class MainActivity : FlutterActivity() {
 
     private companion object {
         const val CHANNEL = "clipvault/backup"
+        const val NETWORK_CHANNEL = "clipvault/network"
         const val BACKUP_NAME = "clipvault_backup.json"
 
         // Environment.DIRECTORY_DOWNLOADS 的字面量（"Download"）——Java 静态
@@ -50,6 +51,26 @@ class MainActivity : FlutterActivity() {
                 result.error("backup_error", e.message, null)
             }
         }
+        // 系统代理解析（DESIGN §6.9）：dart:io HttpClient 默认不读系统
+        // Wi-Fi 代理，App 直连被代理环境阻断 → Dart 侧经此通道取代理。
+        MethodChannel(engine.dartExecutor.binaryMessenger, NETWORK_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getSystemProxy" -> {
+                        // Wi-Fi 手动代理由框架注入应用进程的 JVM 属性；
+                        // VPN(TUN) 模式代理在 IP 层透明转发，无需此机制
+                        val host = System.getProperty("http.proxyHost")
+                        val portStr = System.getProperty("http.proxyPort")
+                        val port = portStr?.toIntOrNull() ?: -1
+                        if (!host.isNullOrBlank() && port in 1..65535) {
+                            result.success(mapOf("host" to host, "port" to port))
+                        } else {
+                            result.success(null)
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
     }
 
     /** 查询 Downloads/ClipVault 下最新一条同名文件的 Uri（跨安装可见）。 */

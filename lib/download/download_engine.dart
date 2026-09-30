@@ -25,6 +25,7 @@ import 'dart:math';
 
 import 'package:dio/dio.dart';
 
+import '../core/app_http.dart' show createAppDio;
 import 'download_task.dart';
 import 'gallery_saver.dart';
 
@@ -200,7 +201,9 @@ class DownloadEngine {
     NowFn? now,
     DelayFn? delay,
   })  : _dio = dio ??
-            Dio(BaseOptions(
+            // 经统一工厂接入系统代理（DESIGN §6.9；dart:io 默认不读
+            // Wi-Fi 代理，代理环境直连必超时）
+            createAppDio(BaseOptions(
               connectTimeout: const Duration(seconds: 15),
               receiveTimeout: const Duration(seconds: 60),
             )),

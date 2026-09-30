@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:clipvault/app.dart';
 import 'package:clipvault/backup/backup_service.dart';
+import 'package:clipvault/core/app_http.dart' show SystemProxy;
 import 'package:clipvault/backup/backup_store.dart';
 import 'package:clipvault/data/history_repository.dart';
 import 'package:clipvault/data/tables.dart';
@@ -25,6 +26,9 @@ const int kImageCacheMaxBytes = 30 * 1024 * 1024;
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   _capImageCache();
+  // 系统代理解析（§6.9）：启动即刷新一次（Dio 工厂 findProxy 读实时缓存，
+  // 不阻塞首帧；回前台时由剪贴板观察者顺带刷新）
+  unawaited(SystemProxy.refresh());
   final container = ProviderContainer(
     overrides: [
       // 生产侧缓存统计/清理：复用历史仓库 + 物理文件清理（S4 约定：

@@ -8,7 +8,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:dio/dio.dart';
+import 'package:clipvault/core/app_http.dart' show createAppDio;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -231,7 +231,7 @@ final FutureProvider<EndpointConfigRepository> endpointConfigRepositoryProvider 
     FutureProvider<EndpointConfigRepository>((ref) async {
   final prefs = await SharedPreferences.getInstance();
   final repo = EndpointConfigRepository(
-    dio: Dio(),
+    dio: createAppDio(),
     prefs: prefs,
     assetLoader: (path) => rootBundle.loadString(path),
   );
@@ -249,10 +249,10 @@ final FutureProvider<TweetParser> tweetParserProvider =
   final repo = await ref.watch(endpointConfigRepositoryProvider.future);
   return ResilientParser(
     primary: SyndicationParser(
-      client: SyndicationClient(dio: Dio()),
+      client: SyndicationClient(dio: createAppDio()),
       config: repo.current,
     ),
-    fallback: FxTwitterParser(dio: Dio(), config: repo.current),
+    fallback: FxTwitterParser(dio: createAppDio(), config: repo.current),
   );
 });
 

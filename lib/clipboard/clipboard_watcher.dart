@@ -5,9 +5,12 @@
 /// - [ClipboardReader] 抽象注入，widget 测试不触真剪贴板通道。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:clipvault/core/app_http.dart' show SystemProxy;
 import 'package:clipvault/core/url_extract.dart';
 
 /// 剪贴板读取抽象（可测）
@@ -89,6 +92,8 @@ class ClipboardWatcher extends Notifier<String?> with WidgetsBindingObserver {
       return;
     }
     if (state != AppLifecycleState.resumed) return;
+    // 回前台顺带刷新系统代理缓存（§6.9：用户可能刚切换了 Wi-Fi 代理）
+    unawaited(SystemProxy.refresh());
     final text = await ref.read(clipboardReaderProvider).readText();
     if (text == null || text.trim().isEmpty) return;
     // 复用 core 的推文 ID 提取做有效性判定（零网络请求，§6.5）
