@@ -8,6 +8,7 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:clipvault/backup/backup_service.dart' show activeBackupService;
 import 'package:clipvault/core/app_strings.dart';
+import 'package:clipvault/core/net_diag.dart' show runNetworkDiagnostics;
 import 'package:clipvault/settings/settings_controller.dart';
 import 'package:clipvault/ui/common/disclaimer_dialog.dart';
 import 'package:clipvault/ui/downloads/task_tile.dart' show formatBytes;
@@ -81,6 +82,66 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
         const SnackBar(content: Text(AppStrings.toastProxySaved)),
       );
     }
+  }
+
+  /// 网络诊断（§6.9 配套）：分层定位代理/TUN 环境失败环节，
+  /// 结果对话框给出每阶段耗时与结论数据。
+  Future<void> _runNetDiag(BuildContext context) async {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('…')),
+    );
+    final steps = await runNetworkDiagnostics();
+    if (!context.mounted) return;
+    final stageNames = {
+      'proxy': AppStrings.diagStageProxy,
+      'dns': AppStrings.diagStageDns,
+      'tcp': AppStrings.diagStageTcp,
+      'https': AppStrings.diagStageHttps,
+    };
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(AppStrings.diagTitle),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final s in steps)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        Icon(
+                          s.ok ? Icons.check_circle : Icons.cancel,
+                          size: 18,
+                          color: s.ok ? Colors.green : Colors.red,
+                        ),
+                        const SizedBox(width: 6),
+                        Text('${stageNames[s.stage] ?? s.stage} '
+                            '(${s.elapsed.inMilliseconds}ms)'),
+                      ]),
+                      Text(s.detail,
+                          style: Theme.of(ctx).textTheme.bodySmall),
+                    ],
+                  ),
+                ),
+              const Divider(),
+              Text(AppStrings.diagHint,
+                  style: Theme.of(ctx).textTheme.bodySmall),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text(AppStrings.actionCancel),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _refreshCache() async {
@@ -281,6 +342,13 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
         ]),
         _header(context, AppStrings.settingsSectionDiag),
         _group([
+          ListTile(
+            leading: const Icon(Icons.network_check),
+            title: Text(AppStrings.actionNetDiag),
+            subtitle: Text(AppStrings.settingsProxyManualHint),
+            onTap: () => _runNetDiag(context),
+          ),
+          const Divider(height: 1, indent: 16, endIndent: 16),
           ListTile(
             leading: const Icon(Icons.info_outline),
             title: Text(AppStrings.settingsVersion),

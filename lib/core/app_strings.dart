@@ -347,4 +347,15 @@ abstract final class AppStrings {
   static const String actionSaveProxy = '保存';
   static const String toastProxySaved = '代理已保存并即时生效';
   static const String toastProxyInvalid = '格式应为 host:port（端口 1-65535）';
+
+
+  // ---- 网络诊断（§6.9 配套：分层定位代理/TUN 环境失败环节）----
+  static const String actionNetDiag = '网络诊断';
+  static const String diagTitle = '网络诊断（cdn.syndication.twimg.com）';
+  static const String diagStageProxy = '代理设置';
+  static const String diagStageDns = 'DNS 解析';
+  static const String diagStageTcp = 'TCP 连接';
+  static const String diagStageHttps = 'HTTPS 链路';
+  static const String diagHint =
+      'DNS 失败=TUN 未接管 App 解析；TCP 失败=路由黑洞（试 IPv6 关闭/strict_route）；HTTPS 失败=上游阻断（填手动代理）';
 }
