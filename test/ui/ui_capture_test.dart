@@ -74,7 +74,9 @@ Future<void> _loadFont(String family, List<String> paths) async {
 /// 的祖先目录），拼出 material_fonts 工件目录——跨平台替代此前写死的
 /// D:/Program/flutter 绝对路径；探测失败返回 null（空候选 → 报错终止）。
 String? _sdkMaterialFontsDir() {
-  var dir = File(Platform.resolvedExecutablePath).parent;
+  // dart:io 无 resolvedExecutablePath；Platform.executable 在 flutter test
+  // 下即 flutter_tester 绝对路径，同样可上溯定位 SDK 根。
+  var dir = File(Platform.executable).parent;
   for (var i = 0; i < 8; i++) {
     final cacheDir = Directory(
         '${dir.path}${Platform.pathSeparator}bin${Platform.pathSeparator}cache');

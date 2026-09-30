@@ -402,7 +402,7 @@ void main() {
     ));
     await repo.apply(activeRow.id,
         DownloadRecordsCompanion(partPath: Value(part.path)));
-    await commands.restoreRecords([await repo.getById(activeRow.id)!]);
+    await commands.restoreRecords([(await repo.getById(activeRow.id))!]);
 
     // 删除旧取消行：行删除，但活动任务引用中的 .part 不被 unlink
     await commands.deleteRecord(oldRow.id);
