@@ -358,4 +358,8 @@ abstract final class AppStrings {
   static const String diagStageHttps = 'HTTPS 链路';
   static const String diagHint =
       'DNS 失败=TUN 未接管 App 解析；TCP 失败=路由黑洞（试 IPv6 关闭/strict_route）；HTTPS 失败=上游阻断（填手动代理）';
+
+  /// 诊断裸路径阶段标注（代理模式下属预期红，避免误读）。
+  static const String diagRawStageNote =
+      '（裸路径测试，不走代理——已设手动代理时红属预期，以 HTTPS 阶段为准）';
 }

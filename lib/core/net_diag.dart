@@ -13,6 +13,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 
+import 'app_strings.dart';
 import 'app_http.dart';
 
 /// 单阶段结果。
@@ -56,14 +57,14 @@ Future<List<NetDiagStep>> runNetworkDiagnostics() async {
         stage: 'dns',
         ok: addrs.isNotEmpty,
         elapsed: sw.elapsed,
-        detail: addrs.map((a) => a.address).join(' / '),
+        detail: _withRawNote(addrs.map((a) => a.address).join(' / ')),
       ));
     } catch (e) {
       steps.add(NetDiagStep(
         stage: 'dns',
         ok: false,
         elapsed: sw.elapsed,
-        detail: _brief(e),
+        detail: _withRawNote(_brief(e)),
       ));
     }
   }
@@ -84,14 +85,14 @@ Future<List<NetDiagStep>> runNetworkDiagnostics() async {
         stage: 'tcp',
         ok: true,
         elapsed: sw.elapsed,
-        detail: '${addrs.first.address}:$kDiagPort',
+        detail: _withRawNote('${addrs.first.address}:$kDiagPort'),
       ));
     } catch (e) {
       steps.add(NetDiagStep(
         stage: 'tcp',
         ok: false,
         elapsed: sw.elapsed,
-        detail: _brief(e),
+        detail: _withRawNote(_brief(e)),
       ));
     }
   }
@@ -134,6 +135,10 @@ Future<List<NetDiagStep>> runNetworkDiagnostics() async {
   }
   return steps;
 }
+
+/// 已设手动代理时给裸路径阶段追加标注（红属预期，以 HTTPS 为准）。
+String _withRawNote(String detail) =>
+    SystemProxy.hasProxy ? '$detail\n${AppStrings.diagRawStageNote}' : detail;
 
 String _brief(Object e) {
   final s = e.toString();
