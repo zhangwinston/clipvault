@@ -50,10 +50,37 @@ class _SettingsBody extends ConsumerStatefulWidget {
 class _SettingsBodyState extends ConsumerState<_SettingsBody> {
   int? _cacheBytes;
 
+  /// 手动代理输入控制器（initState 由设置快照初始化）
+  final TextEditingController _proxyCtrl = TextEditingController();
+  String? _proxyError;
+
   @override
   void initState() {
     super.initState();
+    _proxyCtrl.text = widget.settings.proxyAddress;
     _refreshCache();
+  }
+
+  @override
+  void dispose() {
+    _proxyCtrl.dispose();
+    super.dispose();
+  }
+
+  /// 保存手动代理（§6.9）：校验与生效同源（setProxyAddress 内部复用
+  /// parseProxyAddress），成功即注入运行时 Dio 出口，无需重启。
+  Future<void> _saveProxy() async {
+    final ok = await ref
+        .read(settingsControllerProvider.notifier)
+        .setProxyAddress(_proxyCtrl.text);
+    if (!mounted) return;
+    setState(() => _proxyError =
+        ok ? null : AppStrings.toastProxyInvalid);
+    if (ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text(AppStrings.toastProxySaved)),
+      );
+    }
   }
 
   Future<void> _refreshCache() async {
@@ -133,6 +160,40 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
             onChanged: (value) => ref
                 .read(settingsControllerProvider.notifier)
                 .setWifiOnly(value),
+          ),
+        ]),
+        _header(context, AppStrings.settingsSectionProxy),
+        _group([
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: _proxyCtrl,
+                  decoration: InputDecoration(
+                    labelText: AppStrings.settingsProxyManualLabel,
+                    hintText: AppStrings.settingsProxyManualHint,
+                    errorText: _proxyError,
+                  ),
+                  keyboardType: TextInputType.url,
+                  onSubmitted: (_) => _saveProxy(),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  AppStrings.settingsProxyManualHelper,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton.tonal(
+                    onPressed: _saveProxy,
+                    child: const Text(AppStrings.actionSaveProxy),
+                  ),
+                ),
+              ],
+            ),
           ),
         ]),
         _header(context, AppStrings.settingsSectionBackup),

@@ -335,4 +335,16 @@ abstract final class AppStrings {
   static const String toastRestoreDone = '已恢复 {n} 条记录';
   static const String toastRestoreEmpty = '没有可用的备份';
   static const String toastRestoreUptodate = '记录均已存在，无需恢复';
+
+
+  // ---- 网络代理（§6.9 手动代理：移动网络无系统代理的根本解法）----
+  /// 设置分区标题。
+  static const String settingsSectionProxy = '网络代理';
+  static const String settingsProxyManualLabel = '手动代理地址';
+  static const String settingsProxyManualHint = 'host:port，如 127.0.0.1:2080';
+  static const String settingsProxyManualHelper =
+      '移动网络下系统无代理设置：可填本机代理端口（sing-box 2080 / Clash 7890 / v2rayN 10808）。留空跟随系统代理；TUN/VPN 模式无需填写';
+  static const String actionSaveProxy = '保存';
+  static const String toastProxySaved = '代理已保存并即时生效';
+  static const String toastProxyInvalid = '格式应为 host:port（端口 1-65535）';
 }

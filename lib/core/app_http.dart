@@ -24,22 +24,35 @@ import 'package:dio/io.dart';
 import 'package:flutter/services.dart';
 
 /// 系统代理解析（进程内缓存；[refresh] 后 [proxySetting] 生效）。
+///
+/// 优先级：**手动代理（设置页）> 系统代理（Wi-Fi 手动配置）> 直连**。
+/// 手动代理存在的意义：移动网络下系统层没有代理设置（§6.9），
+/// 用户代理客户端（sing-box/Clash 等）本地监听端口（如 2080/7890），
+/// 填 `127.0.0.1:2080` 即可在任何网络走代理。
 class SystemProxy {
   SystemProxy._();
 
   static const MethodChannel _channel = MethodChannel('clipvault/network');
 
-  /// 缓存的代理指令（HttpClient.findProxy 语法，如 'PROXY 127.0.0.1:7890'）；
-  /// null = 直连。
+  /// 缓存的系统代理指令（'PROXY host:port'）；null = 未取到。
   static String? _cached;
 
-  /// 当前应使用的代理设置（findProxy 语法；同步读缓存）。
-  static String get proxySetting => _cached ?? 'DIRECT';
+  /// 手动代理指令（设置页 proxyAddress 注入）；null = 未设置。
+  static String? _manual;
+
+  /// 当前应使用的代理设置（findProxy 语法；手动 > 系统 > 直连）。
+  static String get proxySetting => _manual ?? _cached ?? 'DIRECT';
 
   /// 是否解析到了代理（诊断/日志用）。
-  static bool get hasProxy => _cached != null;
+  static bool get hasProxy => _manual != null || _cached != null;
 
-  /// 经平台通道刷新缓存。通道未实现（iOS/桌面/测试）或读取失败 → 直连，
+  /// 注入手动代理（'host:port'；空/非法 → 清除并回落系统/直连）。
+  static void setManualAddress(String? raw) {
+    final parsed = parseProxyAddress(raw);
+    _manual = parsed == null ? null : 'PROXY ${parsed.$1}:${parsed.$2}';
+  }
+
+  /// 经平台通道刷新缓存。通道未实现（桌面/测试）或读取失败 → 直连，
   /// 绝不抛（网络增强能力，不影响主流程）。
   static Future<void> refresh() async {
     try {
@@ -57,8 +70,31 @@ class SystemProxy {
     }
   }
 
-  /// 测试注入（置空缓存）。
-  static void debugReset() => _cached = null;
+  /// 测试注入（置空全部缓存）。
+  static void debugReset() {
+    _cached = null;
+    _manual = null;
+  }
+}
+
+/// 解析用户输入的代理地址（设置页与 [SystemProxy.setManualAddress] 共用）。
+///
+/// 接受 `host:port`（可带 `http://` 前缀；IPv6 字面量走最后一个冒号分割），
+/// 端口域 1~65535；非法输入返回 null。
+(String, int)? parseProxyAddress(String? raw) {
+  if (raw == null) return null;
+  var s = raw.trim();
+  if (s.isEmpty) return null;
+  for (final scheme in const ['http://', 'https://']) {
+    if (s.startsWith(scheme)) s = s.substring(scheme.length);
+  }
+  s = s.replaceAll(RegExp(r'[/]$'), ''); // 容忍尾部斜杠
+  final idx = s.lastIndexOf(':');
+  if (idx <= 0 || idx == s.length - 1) return null;
+  final host = s.substring(0, idx).replaceAll(RegExp(r'^\[|\]$'), '');
+  final port = int.tryParse(s.substring(idx + 1));
+  if (host.isEmpty || port == null || port < 1 || port > 65535) return null;
+  return (host, port);
 }
 
 /// 给已有 [dio] 接入系统代理（findProxy 回调读实时缓存）。

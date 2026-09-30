@@ -98,6 +98,9 @@ Future<void> _bootstrapRecovery(ProviderContainer container) async {
     // 必须在引擎恢复扫描之前——导入的记录含活动态映射的 canceled，
     // 不参与重下；已存在记录时 restoreIfEmpty 为 no-op。
     final settings = container.read(settingsControllerProvider).value;
+    // 手动代理（§6.9）：启动注入设置页保存的地址（优先级 手动>系统>直连；
+    // 后续修改经 setProxyAddress 即时生效，无需重启）
+    SystemProxy.setManualAddress(settings?.proxyAddress);
     final backup = BackupService(
       repo: repo,
       store: container.read(backupStoreProvider),

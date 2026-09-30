@@ -62,6 +62,42 @@ void main() {
     dio.close();
   });
 
+  group('手动代理（§6.9 移动网络场景）：优先级与地址解析', () {
+    test('parseProxyAddress：合法/非法输入', () {
+      expect(parseProxyAddress('127.0.0.1:2080'), ('127.0.0.1', 2080));
+      expect(parseProxyAddress('http://127.0.0.1:7890'), ('127.0.0.1', 7890));
+      expect(parseProxyAddress(' 192.168.1.5:8888/'), ('192.168.1.5', 8888));
+      expect(parseProxyAddress('[::1]:2080'), ('::1', 2080));
+      expect(parseProxyAddress(''), isNull);
+      expect(parseProxyAddress(null), isNull);
+      expect(parseProxyAddress('abc'), isNull);
+      expect(parseProxyAddress('host:'), isNull);
+      expect(parseProxyAddress(':8080'), isNull);
+      expect(parseProxyAddress('host:0'), isNull);
+      expect(parseProxyAddress('host:65536'), isNull);
+      expect(parseProxyAddress('host:abc'), isNull);
+    });
+
+    test('优先级：手动 > 系统 > 直连；非法手动被忽略', () async {
+      final messenger = TestDefaultBinaryMessengerBinding
+          .instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(
+          const MethodChannel('clipvault/network'),
+          (call) async => {'host': '10.0.0.2', 'port': 8888});
+      await SystemProxy.refresh();
+      expect(SystemProxy.proxySetting, 'PROXY 10.0.0.2:8888');
+
+      SystemProxy.setManualAddress('127.0.0.1:2080');
+      expect(SystemProxy.proxySetting, 'PROXY 127.0.0.1:2080'); // 手动优先
+
+      SystemProxy.setManualAddress('not-valid'); // 非法 → 清除回落系统
+      expect(SystemProxy.proxySetting, 'PROXY 10.0.0.2:8888');
+
+      SystemProxy.setManualAddress(''); // 清空 → 系统
+      expect(SystemProxy.proxySetting, 'PROXY 10.0.0.2:8888');
+    });
+  });
+
   test('createAppDio 透传 BaseOptions（超时等配置不丢）', () {
     final dio = createAppDio(BaseOptions(
       connectTimeout: const Duration(seconds: 15),

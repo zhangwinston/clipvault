@@ -6,6 +6,9 @@
 library;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'package:clipvault/core/app_http.dart'
+    show SystemProxy, parseProxyAddress;
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 当前免责条款版本（条款更新时递增，触发重新弹窗，DESIGN §8.3）
@@ -19,6 +22,7 @@ const String kPrefSettingsConcurrency = 'settings.concurrency';
 const String kPrefSettingsQualityMode = 'settings.qualityMode';
 const String kPrefSettingsWifiOnly = 'settings.wifiOnly';
 const String kPrefSettingsBackupHistory = 'settings.backupHistory';
+const String kPrefSettingsProxyAddress = 'settings.proxyAddress';
 const String kPrefSettingsAutoCleanDays = 'settings.autoCleanDays';
 const String kPrefSettingsAutoCleanMaxBytes = 'settings.autoCleanMaxBytes';
 
@@ -35,6 +39,7 @@ class SettingsState {
     required this.qualityMode,
     required this.wifiOnly,
     required this.backupHistory,
+    required this.proxyAddress,
     required this.autoCleanDays,
     required this.autoCleanMaxBytes,
     this.disclaimerAcceptedAt,
@@ -49,6 +54,10 @@ class SettingsState {
 
   /// 卸载重装后保留历史（自动备份到公共 Downloads，DESIGN §4.7）
   final bool backupHistory;
+
+  /// 手动代理地址（"host:port"，如 127.0.0.1:2080；空 = 跟随系统代理。
+  /// 移动网络无系统代理设置时的根本解法，DESIGN §6.9）
+  final String proxyAddress;
   final int autoCleanDays;
   final int autoCleanMaxBytes;
 
@@ -63,6 +72,7 @@ class SettingsState {
     String? qualityMode,
     bool? wifiOnly,
     bool? backupHistory,
+    String? proxyAddress,
     int? autoCleanDays,
     int? autoCleanMaxBytes,
   }) {
@@ -74,6 +84,7 @@ class SettingsState {
       qualityMode: qualityMode ?? this.qualityMode,
       wifiOnly: wifiOnly ?? this.wifiOnly,
       backupHistory: backupHistory ?? this.backupHistory,
+      proxyAddress: proxyAddress ?? this.proxyAddress,
       autoCleanDays: autoCleanDays ?? this.autoCleanDays,
       autoCleanMaxBytes: autoCleanMaxBytes ?? this.autoCleanMaxBytes,
     );
@@ -124,6 +135,7 @@ class SettingsController extends AsyncNotifier<SettingsState> {
       qualityMode: prefs.getString(kPrefSettingsQualityMode) ?? kQualityModeHighest,
       wifiOnly: prefs.getBool(kPrefSettingsWifiOnly) ?? false,
       backupHistory: prefs.getBool(kPrefSettingsBackupHistory) ?? true,
+      proxyAddress: prefs.getString(kPrefSettingsProxyAddress) ?? '',
       autoCleanDays: prefs.getInt(kPrefSettingsAutoCleanDays) ?? 3,
       autoCleanMaxBytes: prefs.getInt(kPrefSettingsAutoCleanMaxBytes) ?? 2 * 1024 * 1024 * 1024,
     );
@@ -187,6 +199,22 @@ class SettingsController extends AsyncNotifier<SettingsState> {
     if (cur != null) state = AsyncData(cur.copyWith(backupHistory: value));
   }
 
+  /// 设置手动代理地址（§6.9）：空串清除（回落系统代理）；返回 false =
+  /// 格式非法。校验与生效同源（core/app_http 的 parseProxyAddress），
+  /// 保存后即时注入运行时代理解析器，无需重启。
+  Future<bool> setProxyAddress(String raw) async {
+    final trimmed = raw.trim();
+    if (trimmed.isNotEmpty && parseProxyAddress(trimmed) == null) return false;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(kPrefSettingsProxyAddress, trimmed);
+    final cur = _current;
+    if (cur != null) {
+      state = AsyncData(cur.copyWith(proxyAddress: trimmed));
+    }
+    SystemProxy.setManualAddress(trimmed);
+    return true;
+  }
+
   /// 缓存占用（字节）
   Future<int> cacheBytes() => ref.read(cacheStoreProvider).sizeBytes();
 
@@ -204,4 +232,9 @@ final AsyncNotifierProvider<SettingsController, SettingsState> settingsControlle
 /// 备份开关窄视图（main 装配监听用：仅备份开关变化时通知，不随整状态刷新）
 final Provider<bool> backupHistoryFlagProvider = Provider<bool>((ref) {
   return ref.watch(settingsControllerProvider).value?.backupHistory ?? true;
+});
+
+/// 手动代理地址窄视图（main 装配监听用）。
+final Provider<String> proxyAddressProvider = Provider<String>((ref) {
+  return ref.watch(settingsControllerProvider).value?.proxyAddress ?? '';
 });
