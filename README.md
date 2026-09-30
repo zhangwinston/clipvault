@@ -6,10 +6,12 @@
 
 | 产物 | 入口 | 说明 |
 |---|---|---|
-| Android APK | [Releases · continuous](https://github.com/zhangwinston/clipvault/releases/tag/continuous) | Release 构建 · debug 签名，下载后直接侧载安装 |
+| Android APK | [Releases · continuous](https://github.com/zhangwinston/clipvault/releases/tag/continuous) | Release 构建 · **2026-09-30 起 CI 固定签名**，可直接覆盖安装升级 |
 | iOS IPA | 同上 | **未签名**，需自签（AltStore / Sideloadly / 企业证书）后安装 |
 
 > `continuous` 标签随 main 分支每次推送滚动更新，始终是最新构建；无需登录即可下载。
+>
+> ⚠️ 2026-09-30 之前的 APK 为随机 debug 签名：升级到固定签名版**需最后一次先卸载重装**（此后再更新全部覆盖安装）。卸载前请确认「设置 → 备份与恢复 → 卸载重装后保留历史」已开启；重装后在该页点「从备份恢复」，直读失败会自动弹出文件选择器，选中 `Download/ClipVault/clipvault_backup.json` 即可救回历史。
 
 X(Twitter) 视频下载 App —— Flutter 单代码库（Android + iOS），纯客户端 Syndication 解析（DESIGN 方案 A'）。
 
