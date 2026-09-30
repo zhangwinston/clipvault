@@ -88,7 +88,19 @@ jobs:
           CV_KEYSTORE_B64: ${{ secrets.CV_KEYSTORE_B64 }}
         run: |
           if [ -n "$CV_KEYSTORE_B64" ]; then
-            echo "$CV_KEYSTORE_B64" | base64 -d > android/app/clipvault-ci.jks
+            echo "$CV_KEYSTORE_B64" | base64 -d > /tmp/cv-src.p12
+            # 传输完整性对照（本地期望值见仓库排障记录）
+            echo "p12 sha256: $(sha256sum /tmp/cv-src.p12 | cut -d' ' -f1)"
+            # p12 → Java 原生 JKS：openssl 3.5 生成的 p12（含 -legacy 兼容版）
+            # 经 AGP/Java 读取持续报 password incorrect（本地 openssl 验证
+            # 密码无误）——就地经 keytool 转换绕开 PKCS12 读取器，若 p12
+            # 本身不可读，此步会给出更真实的错误信息
+            keytool -importkeystore -noprompt \
+              -srckeystore /tmp/cv-src.p12 -srcstoretype PKCS12 \
+              -srcstorepass ClipVaultCI2026 -srcalias clipvault \
+              -destkeystore android/app/clipvault-ci.jks -deststoretype JKS \
+              -deststorepass ClipVaultCI2026 -destalias clipvault
+            echo "jks sha256: $(sha256sum android/app/clipvault-ci.jks | cut -d' ' -f1)"
           else
             echo "::warning::未配置 CV_KEYSTORE_B64，本轮使用 debug 签名（签名轮换会破坏备份跨卸载恢复与覆盖安装）"
           fi
