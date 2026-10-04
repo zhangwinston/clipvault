@@ -179,6 +179,9 @@ abstract final class AppStrings {
   static const String actionShare = '分享';
   static const String actionPlay = '播放';
 
+  /// 弹窗确认保存（代理地址编辑等）。
+  static const String actionSave = '保存';
+
   /// 权限被拒降级路径：历史条目重存入口（§4.4 / §8.1）。
   /// 常驻入口的两个标签：未保存过用「保存至相册」，保存过用「重新保存至相册」。
   static const String actionResave = '重新保存至相册';
@@ -375,10 +378,21 @@ abstract final class AppStrings {
   // ---- 网络代理（§6.9 手动代理：移动网络无系统代理的根本解法；
   // 并入「高级与网络」组，2026-10-04 IA 四分组）----
   /// UI 评审 2026-09-30：教学长文迁入 ⓘ 弹层，常驻仅一行。
+  /// 2026-10-04 二轮合并：开关与地址编辑收进单行 ListTile——Switch 独管
+  /// 启停，开启态副标题展示生效地址 + 编辑铅笔（整行/铅笔点按唤起编辑
+  /// 弹窗），关闭态副标题「未启用」且不可编辑；TUN 提示收进弹窗 helper。
   static const String settingsProxyToggle = '使用代理';
   static const String settingsProxyActiveNow = '当前生效：';
+
+  /// 关闭态副标题（避免「未开启却仍可改地址」的认知混淆）。
+  static const String settingsProxyOffLabel = '未启用';
+
+  /// 地址编辑弹窗标题。
+  static const String settingsProxyEditTitle = '设置代理地址';
   static const String settingsProxyManualLabel = '代理地址';
   static const String settingsProxyManualHint = '如 127.0.0.1:2080';
+
+  /// 弹窗内 helper（TUN/VPN 语义说明不常驻主界面）。
   static const String settingsProxyManualHelper =
       'TUN/VPN 模式无需开启，端口点 ⓘ 查看';
   static const String settingsProxyHelpTitle = '代理地址说明';
@@ -386,7 +400,6 @@ abstract final class AppStrings {
       '移动网络下系统无代理设置：缺省 127.0.0.1:2080（sing-box 混合端口），可改 Clash 7890 / v2rayN 10808 等';
   static const String settingsProxyKeepNote =
       '关闭开关仅暂停使用，地址保留，重开免重填；关闭后回落系统代理或直连';
-  static const String toastProxySavedDisabled = '已保存，开启代理后生效';
   static const String toastProxyInvalid = '格式应为 host:port（端口 1-65535）';
 
 

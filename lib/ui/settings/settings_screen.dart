@@ -1,6 +1,8 @@
 /// 我的 Tab（DESIGN §4.6 / §7.1-4）：
 /// IA 四分组（2026-10-04）——下载偏好 / 数据与存储 / 高级与网络 / 关于与合规，
 /// 高频配置置顶、高技术属性的代理与网络排障沉底、合规与版本收口；
+/// 代理项合并为单行高内聚设置项（Switch 启停 + 副标题生效地址/铅笔，
+/// 编辑走弹窗、TUN 长文收进弹窗，不再常驻行内输入框）；
 /// 免责声明重看（版本化）/ 权限说明 / 缓存占用与清理（行内化）
 /// / 诊断信息（端点配置版本、App 版本）/ P2 偏好（默认画质、并发数、仅 Wi-Fi）。
 library;
@@ -57,62 +59,45 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
   /// 网络诊断进行中（行内 spinner，UI 评审 R4）
   bool _diagRunning = false;
 
-  /// 手动代理输入控制器（initState 由设置快照初始化）
-  final TextEditingController _proxyCtrl = TextEditingController();
-
-  /// 地址框焦点（didUpdateWidget 判断"用户是否正在编辑"用；
-  /// hasFocus 在 FocusNode 上，TextEditingController 无此 getter）
-  final FocusNode _proxyFocus = FocusNode();
-  String? _proxyError;
-
   @override
   void initState() {
     super.initState();
-    _proxyCtrl.text = widget.settings.proxyAddress;
     _refreshCache();
   }
 
-  /// 开关开启且地址为空时控制器会落缺省地址（state 变化触发重建）——
-  /// 同步进输入框：非编辑态全量同步；聚焦时仅当框为空才补缺省（否则
-  /// 副标题"当前生效"与空框长期矛盾，审查发现 #3）。同步即清残留的
-  /// 格式错误提示（审查发现 #4）。
-  @override
-  void didUpdateWidget(covariant _SettingsBody oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.settings.proxyAddress != oldWidget.settings.proxyAddress &&
-        (!_proxyFocus.hasFocus || _proxyCtrl.text.trim().isEmpty)) {
-      _proxyCtrl.text = widget.settings.proxyAddress;
-      if (_proxyError != null) setState(() => _proxyError = null);
-    }
+  /// 代理地址编辑弹窗（2026-10-04 合并单行设置项后的唯一编辑入口）。
+  /// 弹窗本体见 [_ProxyEditDialog]（自持控制器，生命周期随路由——
+  /// 闭包式 dispose 会撞上退场动画仍在渲染的 TextField）。
+  Future<void> _editProxyAddress(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => _ProxyEditDialog(
+        // 初值取生效地址（空地址回落缺省，与副标题展示口径一致）
+        initialAddress: widget.settings.effectiveProxyAddress,
+        // 校验与生效同源（setProxyAddress 内部复用 parseProxyAddress）
+        onSave: (raw) => ref
+            .read(settingsControllerProvider.notifier)
+            .setProxyAddress(raw),
+        onHelp: _showProxyHelp,
+      ),
+    );
   }
 
-  @override
-  void dispose() {
-    _proxyCtrl.dispose();
-    _proxyFocus.dispose();
-    super.dispose();
-  }
-
-  /// 失焦自动保存（UI 评审 R3：无保存按钮）：仅在有改动时触发，
-  /// 避免每次点页面都写盘。
-  void _maybeSaveProxy() {
-    if (_proxyCtrl.text.trim() != widget.settings.proxyAddress) _saveProxy();
-  }
-
-  /// 保存手动代理（§6.9）：校验与生效同源（setProxyAddress 内部复用
-  /// parseProxyAddress）。回车/失焦触发；开关关闭态保存以 toast 提示，
-  /// 开启态由副标题"当前生效"即时反馈（UI 评审 R3 反馈瘦身）。
-  Future<void> _saveProxy() async {
-    final ok = await ref
-        .read(settingsControllerProvider.notifier)
-        .setProxyAddress(_proxyCtrl.text);
-    if (!mounted) return;
-    setState(() => _proxyError = ok ? null : AppStrings.toastProxyInvalid);
-    if (ok && !widget.settings.proxyEnabled) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text(AppStrings.toastProxySavedDisabled)),
-      );
-    }
+  /// 副标题行内编辑铅笔：与整行 onTap 唤起同一弹窗（拇指热区外仍可
+  /// 精准点按；嵌套 InkWell 命中内层，不会与行点击叠加触发）。
+  Widget _proxyEditPencil(BuildContext context) {
+    return InkWell(
+      onTap: () => _editProxyAddress(context),
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.all(2),
+        child: Icon(
+          Icons.edit_outlined,
+          size: 14,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+      ),
+    );
   }
 
   /// 代理地址说明弹层（UI 评审 R2）：端口对照与开关语义长文迁入此处，
@@ -382,56 +367,53 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
         // ---- ③ 高级与网络 ----
         _header(context, AppStrings.settingsSectionAdvanced),
         _group([
-          // 总开关（用户反馈 2026-09-30）：一键启停，地址常驻免重填；
-          // 副标题仅在开启态呈现生效地址（空地址回落缺省 127.0.0.1:2080），
-          // 关闭态不渲染（UI 评审：开关态由 Switch 自表达）
-          SwitchListTile(
-            secondary: const Icon(Icons.vpn_key_outlined),
+          // 代理开关 + 地址编辑合并为单行高内聚设置项（2026-10-04 二轮）：
+          // - Switch 独管启停（嵌套手势命中内层，不与行点击冲突）；
+          // - 开启态副标题展示生效地址 + 编辑铅笔，整行/铅笔点按唤起编辑
+          //   弹窗；关闭态副标题「未启用」且整行不可点——杜绝「未开启却
+          //   仍在改地址」的认知混淆；
+          // - TUN/端口长文不再常驻行内，收进弹窗 helper 与 ⓘ；
+          // - 地址仍持久保留（settings 层语义），重开免重填。
+          ListTile(
+            leading: const Icon(Icons.vpn_key_outlined),
             title: Text(AppStrings.settingsProxyToggle),
             subtitle: settings.proxyEnabled
-                ? Text(
-                    // 长地址（自建网关/IPv6）超副标题宽不换行，尾部截断保单行
-                    AppStrings.settingsProxyActiveNow +
-                        settings.effectiveProxyAddress,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                ? Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          // 长地址（自建网关/IPv6）超副标题宽不换行，尾部截断保单行
+                          AppStrings.settingsProxyActiveNow +
+                              settings.effectiveProxyAddress,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      _proxyEditPencil(context),
+                    ],
                   )
-                : null,
-            value: settings.proxyEnabled,
-            onChanged: (value) => ref
-                .read(settingsControllerProvider.notifier)
-                .setProxyEnabled(value),
-          ),
-          // 地址框仅开启态展开（2026-10-04）：代理是高技术属性配置，
-          // 关闭态收起输入框/TUN 提示/ⓘ 的整行横排臃肿区，开关即全部界面；
-          // 地址仍持久保留（settings 层语义），重开免重填。
-          AnimatedCrossFade(
-            duration: const Duration(milliseconds: 250),
-            crossFadeState: settings.proxyEnabled
-                ? CrossFadeState.showFirst
-                : CrossFadeState.showSecond,
-            firstChild: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: TextField(
-                controller: _proxyCtrl,
-                focusNode: _proxyFocus,
-                decoration: InputDecoration(
-                  labelText: AppStrings.settingsProxyManualLabel,
-                  hintText: AppStrings.settingsProxyManualHint,
-                  helperText: AppStrings.settingsProxyManualHelper,
-                  errorText: _proxyError,
-                  suffixIcon: IconButton(
-                    tooltip: AppStrings.settingsProxyHelpTitle,
-                    icon: const Icon(Icons.help_outline),
-                    onPressed: () => _showProxyHelp(context),
+                : Text(
+                    AppStrings.settingsProxyOffLabel,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
-                ),
-                keyboardType: TextInputType.url,
-                onSubmitted: (_) => _saveProxy(),
-                onTapOutside: (_) => _maybeSaveProxy(),
-              ),
+            trailing: Switch(
+              value: settings.proxyEnabled,
+              onChanged: (value) => ref
+                  .read(settingsControllerProvider.notifier)
+                  .setProxyEnabled(value),
             ),
-            secondChild: const SizedBox(width: double.infinity),
+            // 仅开启态整行可编辑（关闭态无地址语义可改）
+            onTap: settings.proxyEnabled
+                ? () => _editProxyAddress(context)
+                : null,
           ),
           const Divider(height: 1, indent: 16, endIndent: 16),
           // 副标题修正：此前错用代理输入框 hint（文案错配，UI 评审 quickWin）；
@@ -683,5 +665,87 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
         );
       }
     }
+  }
+}
+
+/// 代理地址编辑弹窗（2026-10-04 代理项合并单行后的编辑载体）：
+/// - 控制器由弹窗 State 自持——dispose 随路由在退场动画完成后执行；
+///   此前闭包式「showDialog 返回即 dispose」会撞上仍在渲染的 TextField
+///   （used after being disposed）；
+/// - [onSave] 返回 false = 格式非法：就地报错不关窗（校验与生效同源）；
+/// - TUN/端口说明不常驻主界面：helper 一行 + ⓘ 端口对照弹层（[onHelp]）。
+class _ProxyEditDialog extends StatefulWidget {
+  const _ProxyEditDialog({
+    required this.initialAddress,
+    required this.onSave,
+    required this.onHelp,
+  });
+
+  final String initialAddress;
+
+  /// 校验并落盘（false = 格式非法，弹窗保持打开）
+  final Future<bool> Function(String raw) onSave;
+
+  /// ⓘ 端口对照说明弹层（入参为弹窗内 context）
+  final Future<void> Function(BuildContext context) onHelp;
+
+  @override
+  State<_ProxyEditDialog> createState() => _ProxyEditDialogState();
+}
+
+class _ProxyEditDialogState extends State<_ProxyEditDialog> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initialAddress);
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final ok = await widget.onSave(_controller.text);
+    // 保存是异步点：等待期间弹窗可能已被系统返回关闭
+    if (!mounted) return;
+    if (!ok) {
+      setState(() => _error = AppStrings.toastProxyInvalid);
+      return;
+    }
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text(AppStrings.settingsProxyEditTitle),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        keyboardType: TextInputType.url,
+        onSubmitted: (_) => _save(),
+        decoration: InputDecoration(
+          labelText: AppStrings.settingsProxyManualLabel,
+          hintText: AppStrings.settingsProxyManualHint,
+          helperText: AppStrings.settingsProxyManualHelper,
+          errorText: _error,
+          suffixIcon: IconButton(
+            tooltip: AppStrings.settingsProxyHelpTitle,
+            icon: const Icon(Icons.help_outline),
+            onPressed: () => widget.onHelp(context),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text(AppStrings.actionCancel),
+        ),
+        FilledButton(
+          onPressed: _save,
+          child: const Text(AppStrings.actionSave),
+        ),
+      ],
+    );
   }
 }
