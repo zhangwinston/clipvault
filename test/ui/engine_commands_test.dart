@@ -412,4 +412,94 @@ void main() {
     expect(await part.exists(), isTrue,
         reason: '活动任务引用中的断点残片不清理');
   });
+
+  test('重启后重试失败任务（回归 2026-10-04）：恢复扫描含 failed 行，'
+      '重试从 .part 断点续传而非无操作/归零', () async {
+    // 服务器语义：带 Range → 206 续传；无 Range → 200 全量
+    final body = Uint8List.fromList(
+        List<int>.generate(8 * 1024, (i) => i & 0xFF));
+    final seenRanges = <String?>[];
+    Future<ResponseBody> serve(RequestOptions options) async {
+      final raw = options.headers['Range'];
+      final range = raw is String ? raw : null;
+      seenRanges.add(range);
+      if (range != null) {
+        final from =
+            int.parse(RegExp(r'bytes=(\d+)-').firstMatch(range)!.group(1)!);
+        return ResponseBody(
+          Stream<Uint8List>.fromIterable([body.sublist(from)]),
+          206,
+          headers: <String, List<String>>{
+            'content-range': [
+              'bytes $from-${body.length - 1}/${body.length}'
+            ],
+          },
+        );
+      }
+      return ResponseBody(
+        Stream<Uint8List>.fromIterable([body]),
+        200,
+        headers: <String, List<String>>{
+          'content-length': ['${body.length}'],
+        },
+      );
+    }
+
+    // 按生产接线构造：dio 走 stub CDN，store 接 RepoDownloadStore
+    //（引擎状态需回写 DB 行，与 downloadEngineProvider 装配一致）
+    final engine = DownloadEngine(
+      dio: Dio()..httpClientAdapter = _StubAdapter(serve),
+      downloadDir: tmpDir,
+      store: RepoDownloadStore(repo),
+    );
+    final commands = EngineDownloadCommands(engine, repo);
+    addTearDown(commands.dispose);
+    addTearDown(() => engine.dispose());
+
+    // 上次会话遗留：failed 行 + .part 残片（4096 字节已送达）
+    final part = File(
+        '${tmpDir.path}${Platform.pathSeparator}1790637656616943995_2176000.part')
+      ..writeAsBytesSync(body.sublist(0, 4096));
+    var row = await repo.createTask(DownloadRecordsCompanion.insert(
+      tweetId: '1790637656616943995',
+      variantUrl: 'https://video.twimg.com/x.mp4',
+      contentType: 'mp4',
+      bitrate: 2176000,
+      qualityLabel: '720p (HD)',
+      status: DownloadStatus.failed.name,
+      tweetJson: '{"tweetId":"1790637656616943995"}',
+    ));
+    await repo.apply(row.id, DownloadRecordsCompanion(
+          partPath: Value(part.path),
+          bytesDone: const Value(4096),
+          bytesTotal: Value(body.length),
+        ));
+
+    // 本次启动：恢复扫描 → 分流（与 main._bootstrapRecovery 同路径）
+    final recovered = await repo.recoverOnStartup(onRequeue: (_) {});
+    await restoreDownloadRecords(commands, recovered);
+
+    // 用户点「重试」
+    await commands.retry(row.id);
+    // 轮询至引擎完成且 DB 行落库完成（upsert 是 fire-and-forget 异步回写）
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (DateTime.now().isBefore(deadline)) {
+      final t = engine.task(EngineDownloadCommands.engineIdOf(row.id));
+      final rowNow = await repo.getById(row.id);
+      if (t?.status == dt.DownloadStatus.completed &&
+          rowNow?.status == DownloadStatus.completed.name) {
+        break;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+
+    final t = engine.task(EngineDownloadCommands.engineIdOf(row.id));
+    expect(t, isNotNull, reason: 'failed 行经恢复登记进引擎，重试才有句柄');
+    expect(t?.status, dt.DownloadStatus.completed,
+        reason: 'err=${t?.errorMessage} ranges=$seenRanges');
+    expect(seenRanges, <String?>['bytes=4096-'], reason: '从断点续传而非归零');
+    expect(File(t!.filePath!).readAsBytesSync(), body);
+    row = (await repo.getById(row.id))!;
+    expect(row.status, DownloadStatus.completed.name);
+  });
 }

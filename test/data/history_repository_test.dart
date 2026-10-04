@@ -196,7 +196,7 @@ void main() {
     expect(await repo.watchById(999999).first, isNull);
   });
 
-  test('启动恢复扫描：全部未完成记录（queued/running/paused）回调重新入队，扫描只读不改', () async {
+  test('启动恢复扫描：未完成 + 可重试终态（failed/canceled）回调重登，completed 不命中，扫描只读不改', () async {
     final runningWithPart = await repo.createTask(companion(
       status: 'running',
       partPath: '/dl/a.part',
@@ -229,6 +229,11 @@ void main() {
       errorCode: 'E02',
       tweetId: '555555555555555555',
     ));
+    final canceledRow = await repo.createTask(companion(
+      status: 'canceled',
+      partPath: '/dl/c.part',
+      tweetId: '777777777777777777',
+    ));
 
     final requeued = <int>[];
     final hit = await repo.recoverOnStartup(
@@ -238,11 +243,15 @@ void main() {
     // 未完成行全部命中：仓库层不按 .part 存在性过滤（引擎 restoreFrom
     // 对 .part 缺失归零重下），排队未落盘（partPath null）的行同样
     // 回到引擎——否则将成为永不被调度的僵尸行。
+    // failed/canceled 一并命中（2026-10-04 修复）：终态失败行不回引擎，
+    // 重启后「一键重试」将静默空操作（引擎无任务句柄）。
     final expected = <int>[
       runningWithPart.id,
       pausedWithPart.id,
       queuedPartMissing.id,
       queuedNoPartPath.id,
+      failedWithPart.id,
+      canceledRow.id,
     ];
     expect(requeued, unorderedEquals(expected));
     expect(hit.map((r) => r.id), unorderedEquals(expected));
@@ -252,7 +261,8 @@ void main() {
     expect(resumed.partPath, '/dl/a.part');
     expect(resumed.bytesDone, 100);
 
-    // 终态行不命中且保持原状态（重置状态是引擎入队流程的职责）。
+    // completed 不命中（历史页直接读库）；命中行保持原状态
+    // （重置状态是引擎入队流程的职责）。
     expect((await repo.getById(completedWithPart.id))!.statusEnum,
         DownloadStatus.completed);
     expect((await repo.getById(failedWithPart.id))!.statusEnum,

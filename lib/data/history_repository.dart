@@ -20,8 +20,9 @@ class CacheStats {
 ///
 /// 供下载引擎（Step 5）与 UI（Step 6）使用：
 /// - Stream 查询驱动下载 Tab 实时刷新（§4.5）；
-/// - [recoverOnStartup] 启动恢复扫描：未完成（queued/running/paused）记录
-///   全部回调重新入队（.part 缺失由引擎归零重下，不在仓库层过滤）；
+/// - [recoverOnStartup] 启动恢复扫描：未完成（queued/running/paused）+
+///   可重试终态（failed/canceled）记录全部回调交引擎（.part 缺失由引擎
+///   归零重下，不在仓库层过滤；终态行引擎仅登记不调度，作重试句柄）；
 /// - [computeCacheStats] 缓存统计（仅计可清理行，与清理口径一致）；
 /// - 删除仅删记录行，物理文件清理由调用方（引擎/设置页）依据返回行执行。
 ///
@@ -189,8 +190,14 @@ class HistoryRepository {
 
   // ---------------- 启动恢复（DESIGN §4.5） ----------------
 
-  /// 启动恢复扫描：状态为未完成（queued/running/paused）的全部记录，
-  /// 逐条经 [onRequeue] 回调交回下载引擎重新入队。返回全部命中记录。
+  /// 启动恢复扫描：状态为未完成（queued/running/paused）+ 可重试终态
+  /// （failed/canceled）的全部记录，逐条经 [onRequeue] 回调交回下载引擎。
+  /// 返回全部命中记录。
+  ///
+  /// failed/canceled 一并返回（2026-10-04 修复）：下载页列表与重试按钮
+  /// 以引擎内存任务为句柄，若恢复扫描漏掉终态失败行，重启后「一键重试」
+  /// 将成为静默空操作（引擎 task == null 直接返回），断点续传无从谈起。
+  /// 引擎 restoreFrom 对终态行仅登记不调度，不会自动重下。
   ///
   /// .part 是否存在不在本层过滤：引擎 restoreFrom 已按「.part 仍存在 →
   /// 以文件实际长度续传；.part 丢失/partPath 尚为 null → bytesDone 归零
@@ -203,12 +210,14 @@ class HistoryRepository {
   Future<List<DownloadRecord>> recoverOnStartup({
     required void Function(DownloadRecord record) onRequeue,
   }) async {
-    const unfinished = [
+    const recoverable = [
       DownloadStatus.queued,
       DownloadStatus.running,
       DownloadStatus.paused,
+      DownloadStatus.failed,
+      DownloadStatus.canceled,
     ];
-    final names = unfinished.map((s) => s.name).toList();
+    final names = recoverable.map((s) => s.name).toList();
     final query = _db.select(_db.downloadRecords)
       ..where((r) => r.status.isIn(names));
     final rows = (await query.get()).map(_utcAlbumSavedAt).toList();

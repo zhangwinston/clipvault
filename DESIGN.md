@@ -240,9 +240,10 @@ D:/Program/xdown/
 
 **任务状态机**：`queued → running → (paused | completed | failed | canceled)`，幂等转移，全部经 Stream 广播给 UI（与 P1 通知共用）。
 
-**断点续传**：目标文件 `downloads/{tweetId}_{bitrate}.part` 落应用文档目录；请求头 `Range: bytes={bytesDone}-`，期望 206（video.twimg.com 实测支持）；三态处理：
+**断点续传**：目标文件 `downloads/{tweetId}_{bitrate}.part` 落应用文档目录；请求头 `Range: bytes={bytesDone}-`，期望 206（video.twimg.com 实测支持）；四态处理：
 - 206 → 从 bytesDone 追加写；
 - 200（范围被忽略）→ 截断 .part 从零重写；
+- 416（断点失效，.part 长度 ≥ 服务器总量——转正前崩溃残留或重解析换到更小重转码）→ 删 .part 归零重下，不耗退避次数（2026-10-04）；
 - 连接中断 → 保留 .part，退避后重试续传。
 - content-length 校验总量；每 64KB flush。
 
@@ -272,7 +273,7 @@ D:/Program/xdown/
 
 ### 4.5 下载历史与内置播放器（data/* + ui/downloads + ui/history + player/）
 
-- drift/SQLite 持久化：启动时扫描**全部**未完成记录（queued/running/paused，不按 .part 存在性过滤——.part 缺失或排队未落盘由引擎归零重下，杜绝僵尸行）并重新入队；Stream 驱动 UI 实时刷新；`tweetJson` 元数据快照使历史页**无需重新解析即可离线渲染**缩略图/作者/文案/清晰度标签；
+- drift/SQLite 持久化：启动时扫描**全部**未完成记录（queued/running/paused，不按 .part 存在性过滤——.part 缺失或排队未落盘由引擎归零重下，杜绝僵尸行）并重新入队；**可重试终态（failed/canceled）一并登记进引擎但不调度**（2026-10-04 修复：下载页重试按钮以引擎内存任务为句柄，恢复扫描漏掉失败行会使重启后「一键重试」成为静默空操作——代理环境失败频发后暴露）；仅 Wi-Fi 挂起只作用于未完成行，终态行不受门控（登记不跑流量，重试是用户显式动作）；Stream 驱动 UI 实时刷新；`tweetJson` 元数据快照使历史页**无需重新解析即可离线渲染**缩略图/作者/文案/清晰度标签；
 - 历史条目字段（PRD 3.4）：缩略图/标题/下载时间/清晰度标签/文件大小；
 - 操作集：删除（P0 即有）；播放/系统分享/重新保存相册（P1 完整）；列表侧长按删记录（仅记录、视频保留，2026-09-30）与详情页删除（记录+文件）构成两档删除语义；
 - 内置播放器（P1）：`video_player 2.14.0`（官方维护）+ 自定义手势层（横滑进度、竖滑音量、全屏横竖屏）；PiP 依赖平台能力（Android activity 嵌画模式、iOS 14+ AVPictureInPictureController），**真机验证前隐藏入口**；media_kit 列为候补（其更新放缓已如实评估）。

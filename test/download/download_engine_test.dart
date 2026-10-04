@@ -777,6 +777,40 @@ void main() {
     expect(h.clock.delays, isEmpty);
   });
 
+  test('416 断点失效：删 .part 归零重下，不归 permanent（回归 2026-10-04）',
+      () async {
+    final body = makeBody(8 * 1024);
+    final raw = RawHttpServer((req, respond) async {
+      if (req.rangeFrom > 0) {
+        await respond.serveStatus(416, 'Range Not Satisfiable');
+      } else {
+        await respond.serveFull(req, body);
+      }
+    });
+    await raw.start();
+    addTearDown(raw.close);
+
+    final h = Harness();
+    await h.start();
+    addTearDown(() => h.teardown());
+
+    // 预置「超出服务器可满足范围」的 .part：模拟转正前崩溃的残留
+    // （.part 已写满总量但未 rename）或 403 重解析换到更小的重转码。
+    final partFile = File(h.pj('${testTweetId}_$testBitrate.part'));
+    await partFile.writeAsBytes(body.sublist(0, 6 * 1024));
+
+    final task = newTask(raw.urlFor('/range-invalid.mp4'));
+    h.engine.enqueue(task);
+    await pumpUntil(
+        () => h.engine.task(task.id)?.status == DownloadStatus.completed);
+
+    // 请求序列：Range 6144- 收到 416 → 删 .part → 无 Range 全量重下
+    expect(raw.requestLog[0], contains('Range:bytes=6144-'));
+    expect(raw.requestLog[1], contains('Range:-'));
+    final t = h.engine.task(task.id)!;
+    expect(await File(t.filePath!).readAsBytes(), body);
+  });
+
   test('429 → 全队列 30s 冷却：暂停 running/queued，自动恢复完成', () async {
     final h = Harness();
     await h.start();

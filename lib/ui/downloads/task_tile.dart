@@ -357,10 +357,17 @@ class EngineDownloadCommands implements DownloadCommands {
   /// 未完成行挂入 [_heldBack]（与运行时挂起同一语义，Wi-Fi 恢复补交），
   /// 其余交引擎断点续传。修复此前「恢复路径不读偏好，重启即在蜂窝
   /// 网络直接开跑」的缺陷。
+  ///
+  /// 终态行（failed/canceled，2026-10-04 修复）不做 Wi-Fi 门控，始终
+  /// 登记进引擎：restoreFrom 对终态仅登记不调度（不会自动跑流量），
+  /// 但它是「一键重试」的内存句柄——挂起会导致蜂窝网络下重试静默空操作。
   Future<void> restoreRecords(Iterable<DownloadRecord> rows) async {
     final engineBound = <dt.DownloadTask>[];
     for (final row in rows) {
-      if (_wifiOnlyEnabled() && !await _connectivity.isOnWifi) {
+      final status = engineStatusOf(row.status);
+      final settled = status == dt.DownloadStatus.failed ||
+          status == dt.DownloadStatus.canceled;
+      if (!settled && _wifiOnlyEnabled() && !await _connectivity.isOnWifi) {
         _heldBack.add(row.id);
         continue;
       }

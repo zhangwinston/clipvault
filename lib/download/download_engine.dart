@@ -5,9 +5,9 @@
 /// - 并发：[ParallelGate] permits=2（设置可调 1-3，规避限速）；
 /// - 流式内存：dio `ResponseType.stream` + 64KB 缓冲循环写 `RandomAccessFile`，
 ///   任意大文件内存占用恒定；
-/// - 断点续传：`Range: bytes={bytesDone}-`，三态处理
-///   （206 追加 / 200 截断重写 / 中断保留 .part 退避后续传），
-///   content-length 校验总量，每 64KB flush；
+/// - 断点续传：`Range: bytes={bytesDone}-`，四态处理
+///   （206 追加 / 200 截断重写 / 416 断点失效删 .part 归零重下 /
+///   中断保留 .part 退避后续传），content-length 校验总量，每 64KB flush；
 /// - 重试：指数退避 800ms×2^n+抖动，3 次后 failed(retryable=true)；
 /// - 403/410：自动回炉重解析刷新直链一次（复用 tweetId，仅刷新 URL
 ///   不丢进度），仍失败才 failed；404 → failed(permanent)；
@@ -544,6 +544,12 @@ class DownloadEngine {
           return;
         }
         continue; // 不计入退避次数
+      } on _RangeInvalid {
+        // 416 断点失效：删除 .part 归零重下（不耗退避次数；归零后的
+        // 请求不带 Range，不可能再触发 416，无热循环风险）。
+        await _invalidatePart(id);
+        _apply(id, (t) => t.copyWith(bytesDone: 0));
+        continue;
       } catch (e) {
         // 控制信号引发的底层异常（abort 以非 DioException 形态冒出）：
         // 不走退避，按信号语义收敛状态。
@@ -661,6 +667,15 @@ class DownloadEngine {
       await _drain(body);
       throw _PermanentFailure('http-404');
     }
+    if (code == 416) {
+      // 断点失效：.part 长度已 ≥ 服务器总量（转正前崩溃的残留窗口、
+      // 或 403 重解析换到更小的重转码同键覆盖）。删除 .part 归零重下，
+      // 而非归入 permanent 让「一键重试」永久打转。
+      await _drain(body);
+      if (bytesDone > 0) throw _RangeInvalid();
+      // 未带 Range 仍 416 = 服务器行为异常，无挽回手段。
+      throw _PermanentFailure('http-416');
+    }
     if (code >= 500) {
       await _drain(body);
       throw _TransientHttp('http-$code');
@@ -774,6 +789,19 @@ class DownloadEngine {
 
     // 8. 入册（不阻塞完成态；权限被拒降级沙盒，albumSavedAt 置空）。
     await _saveToGallery(id);
+  }
+
+  /// 删除断点文件（416 断点失效路径；删除失败容忍——下次尝试会以
+  /// 文件实长重发 Range，最坏情形仍归 _RangeInvalid 再收敛）。
+  Future<void> _invalidatePart(String id) async {
+    final pp = _tasks[id]?.partPath;
+    if (pp == null) return;
+    try {
+      final f = File(pp);
+      if (await f.exists()) await f.delete();
+    } catch (_) {
+      // 占用/权限：忽略
+    }
   }
 
   Future<bool> _saveToGallery(String id) async {
@@ -1005,6 +1033,9 @@ class _CancelSignal implements Exception {}
 class _CooldownSignal implements Exception {}
 
 class _ExpiredUrl implements Exception {}
+
+/// 416 Range Not Satisfiable：断点文件已超出服务器总量，须归零重下。
+class _RangeInvalid implements Exception {}
 
 class _PermanentFailure implements Exception {
   _PermanentFailure(this.message);

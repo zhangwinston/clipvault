@@ -66,8 +66,9 @@ void _capImageCache() {
 }
 
 /// 启动恢复装配（§4.5）：
-/// recoverOnStartup 只读扫描全部未完成记录（queued/running/paused，
-/// 不按 .part 存在性过滤），交命令层分流（P0-2 修复）：
+/// recoverOnStartup 只读扫描全部未完成记录（queued/running/paused）与
+/// 可重试终态（failed/canceled——引擎仅登记不调度，作「一键重试」的
+/// 内存句柄，2026-10-04 修复），交命令层分流（P0-2 修复）：
 /// 仅 Wi-Fi 偏好开启且当前非 Wi-Fi → 挂起等待 Wi-Fi（与运行时同一语义），
 /// 其余交引擎断点续传——.part 缺失/排队未落盘的记录由引擎归零重下，
 /// 不会遗留永不被调度的僵尸行，也不会重启即在蜂窝网络直接开跑。
