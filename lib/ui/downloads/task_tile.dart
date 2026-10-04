@@ -27,6 +27,7 @@ import 'package:clipvault/data/tables.dart' as tbl;
 import 'package:clipvault/download/download_engine.dart';
 import 'package:clipvault/download/download_task.dart' as dt;
 import 'package:clipvault/download/gallery_saver.dart';
+import 'package:clipvault/ui/common/retry_image.dart';
 import 'package:clipvault/parse/models.dart';
 import 'package:clipvault/parse/parser_provider.dart'
     show refreshVariantUrl, tweetParserProvider;
@@ -1162,10 +1163,10 @@ class TaskTile extends StatelessWidget {
                 child: const Center(child: Icon(Icons.movie_outlined, size: 20)),
               )
             else
-              Image(
+              RetryImage(
                 image: proxyNetworkImage(url, cacheWidth: 160),
                 fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => ColoredBox(
+                errorBuilder: (_) => ColoredBox(
                   color: scheme.surfaceContainerHighest,
                   child: const Center(
                       child: Icon(Icons.broken_image_outlined, size: 20)),

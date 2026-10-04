@@ -17,7 +17,7 @@ import 'package:dio/dio.dart' show Dio, Options, ResponseType;
 import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:flutter/painting.dart';
 
-import 'package:clipvault/core/app_http.dart' show createAppDio;
+import 'package:clipvault/core/app_http.dart' show SystemProxy, createAppDio;
 
 /// 网络图片加载器：URL 直连改为统一 HTTP 出口（手动/系统代理随 §6.9 开关）。
 class ProxyNetworkImage extends ImageProvider<ProxyNetworkImage> {
@@ -44,6 +44,10 @@ class ProxyNetworkImage extends ImageProvider<ProxyNetworkImage> {
   }
 
   Future<Codec> _load(ProxyNetworkImage key, ImageDecoderCallback decode) async {
+    // 启动竞态防御（2026-10-04）：代理解析/注入完成前的请求会以 DIRECT
+    // 直连 pbs.twimg.com——代理环境下必失败，且 ImageCache 会把失败的
+    // completer 永久滞留（同 key 永不重试）。先等就绪门闩（2s 兜底）。
+    await SystemProxy.ready;
     final resp = await _dio.get<List<int>>(
       key.url,
       options: Options(responseType: ResponseType.bytes),

@@ -6,6 +6,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:clipvault/core/app_strings.dart';
 import 'package:clipvault/core/proxy_image.dart';
+import 'package:clipvault/ui/common/retry_image.dart';
 import 'package:clipvault/parse/models.dart';
 
 /// 推文预览卡片
@@ -48,11 +49,11 @@ class PreviewCard extends StatelessWidget {
                         color: scheme.surfaceContainerHighest,
                         child: const Center(child: Icon(Icons.movie_outlined, size: 40)),
                       )
-                    : Image(
+                    : RetryImage(
                         image: proxyNetworkImage(tweet.thumbnailUrl,
                             cacheWidth: 640),
                         fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => ColoredBox(
+                        errorBuilder: (_) => ColoredBox(
                           color: scheme.surfaceContainerHighest,
                           child: const Center(child: Icon(Icons.broken_image_outlined)),
                         ),
@@ -149,10 +150,10 @@ class RecentParseTile extends StatelessWidget {
                   color: scheme.surfaceContainerHighest,
                   child: const Center(child: Icon(Icons.movie_outlined, size: 18)),
                 )
-              : Image(
+              : RetryImage(
                   image: proxyNetworkImage(tweet.thumbnailUrl, cacheWidth: 128),
                   fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => ColoredBox(
+                  errorBuilder: (_) => ColoredBox(
                     color: scheme.surfaceContainerHighest,
                     child: const Center(child: Icon(Icons.broken_image_outlined, size: 18)),
                   ),

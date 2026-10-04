@@ -107,6 +107,8 @@ Future<void> _bootstrapRecovery(ProviderContainer container) async {
     } else {
       SystemProxy.setManualAddress(null);
     }
+    // 就绪门闩放行：首帧图片（缩略图）等请求自此不再撞启动竞态直连
+    SystemProxy.markReady();
     final backup = BackupService(
       repo: repo,
       store: container.read(backupStoreProvider),

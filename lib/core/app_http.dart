@@ -17,6 +17,7 @@
 /// 改用手动代理，或使用 VPN 模式代理（TUN 层透明转发，无需本机制）。
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -40,6 +41,22 @@ class SystemProxy {
   /// 手动代理指令（设置页 proxyAddress 注入）；null = 未设置。
   static String? _manual;
 
+  /// 就绪门闩：[refresh]（系统代理解析）与启动注入（main 的
+  /// setManualAddress + [markReady]）任一完成即放行。图片等「随首帧
+  /// 即发起」的请求经 [ready] 等待之——启动竞态期（设置未加载、通道
+  /// 未返回）proxySetting 还是 DIRECT，代理环境下直连必失败，而失败
+  /// 会被 ImageCache 永久滞留（见 RetryImage 注释），必须挡在前面。
+  static Completer<void> _ready = Completer<void>();
+
+  /// 代理解析/注入完成（幂等；2s 兜底超时防极端场景永久挂起）。
+  static Future<void> get ready =>
+      _ready.future.timeout(const Duration(seconds: 2), onTimeout: () {});
+
+  /// 标记就绪（refresh 与启动注入完成时调用；幂等）。
+  static void markReady() {
+    if (!_ready.isCompleted) _ready.complete();
+  }
+
   /// 当前应使用的代理设置（findProxy 语法；手动 > 系统 > 直连）。
   static String get proxySetting => _manual ?? _cached ?? 'DIRECT';
 
@@ -53,7 +70,7 @@ class SystemProxy {
   }
 
   /// 经平台通道刷新缓存。通道未实现（桌面/测试）或读取失败 → 直连，
-  /// 绝不抛（网络增强能力，不影响主流程）。
+  /// 绝不抛（网络增强能力，不影响主流程）。完成即 [markReady]。
   static Future<void> refresh() async {
     try {
       final map = await _channel.invokeMethod<Map<dynamic, dynamic>>(
@@ -67,13 +84,18 @@ class SystemProxy {
       }
     } catch (_) {
       _cached = null;
+    } finally {
+      markReady();
     }
   }
 
-  /// 测试注入（置空全部缓存）。
-  static void debugReset() {
+  /// 测试注入（置空全部缓存；就绪门闩默认一并放行防测试挂起，
+  /// 探测「未就绪」语义时传 ready: false）。
+  static void debugReset({bool ready = true}) {
     _cached = null;
     _manual = null;
+    _ready = Completer<void>();
+    if (ready) markReady();
   }
 }
 
