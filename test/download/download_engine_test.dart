@@ -297,6 +297,26 @@ class RawResponder {
     await _socket.close();
   }
 
+  /// 「黑洞」响应：声明 [body] 全长，写（自 Range 起）[deliverBytes] 字节
+  /// 并确认离机后**保持连接永久沉默**——客户端收到部分数据但无 FIN/RST，
+  /// 靠客户端侧看门狗收敛（HttpServer 的 add+flush 不 close 不推送，
+  /// 必须裸 socket；见类注释实证结论）。
+  Future<void> serveStall(RawRequest req, List<int> body, int deliverBytes) {
+    final from = req.rangeFrom;
+    final data = body.sublist(from, from + deliverBytes);
+    final head = from > 0
+        ? 'HTTP/1.1 206 Partial Content\r\n'
+            'Content-Range: bytes $from-${body.length - 1}/${body.length}\r\n'
+            'Content-Length: ${body.length - from}\r\n'
+            'Connection: close\r\n\r\n'
+        : 'HTTP/1.1 200 OK\r\n'
+            'Content-Length: ${body.length}\r\n'
+            'Connection: close\r\n\r\n';
+    _socket.write(head);
+    _socket.add(data);
+    return _socket.flush(); // 永不 close/destroy：连接沉默保持
+  }
+
   /// 「中断」响应：声明 [body] 全长但只写（自 Range 起）[interruptAfter]
   /// 字节，确认字节离开本机后 destroy——客户端先收数据、后收连接错误。
   Future<void> serveInterrupted(
@@ -357,6 +377,7 @@ class Harness {
 
   Future<void> start({
     Duration progressThrottle = const Duration(milliseconds: 500),
+    Duration stallTimeout = const Duration(seconds: 60),
     UrlRefresher? urlRefresher,
     int concurrency = 2,
   }) async {
@@ -369,6 +390,7 @@ class Harness {
       store: store,
       concurrency: concurrency,
       progressThrottle: progressThrottle,
+      stallTimeout: stallTimeout,
       backoff: BackoffPolicy(random: ZeroRandom()),
       urlRefresher: urlRefresher,
       now: clock.now,
@@ -678,6 +700,7 @@ void main() {
 
     var t = h.engine.task(task.id)!;
     expect(t.failureKind, DownloadFailureKind.retryable);
+    // ignore: avoid_print
     expect(t.autoRetries, 3);
     expect(
         h.clock.delays,
@@ -809,6 +832,59 @@ void main() {
     expect(raw.requestLog[1], contains('Range:-'));
     final t = h.engine.task(task.id)!;
     expect(await File(t.filePath!).readAsBytes(), body);
+  });
+
+  test('流停顿看门狗（回归 2026-10-04）：代理黑洞化按网络错误收敛 failed，恢复后重试续传',
+      () async {
+    const deliver = 1536; // 每次黑洞响应先送达的字节数
+    final body = makeBody(8 * 1024);
+    var blackHole = true;
+    final raw = RawHttpServer((req, respond) async {
+      if (blackHole) {
+        // 裸 socket 才能构造「部分字节送达 + 连接保持沉默」：HttpServer
+        // 的 add+flush 在不 close 时客户端收不到体（见类注释实证）
+        await respond.serveStall(req, body, deliver);
+      } else {
+        await respond.serveFull(req, body);
+      }
+    });
+    await raw.start();
+    addTearDown(raw.close);
+
+    final h = Harness();
+    // 看门狗缩短到 300ms：模拟「连接不断但永不产字节」的黑洞代理
+    await h.start(stallTimeout: const Duration(milliseconds: 300));
+    addTearDown(() => h.teardown());
+
+    final task = newTask(raw.urlFor('/stall.mp4'));
+    h.engine.enqueue(task);
+    // 无看门狗时该任务将永久停在 running（dio receiveTimeout 只护响应
+    // 头，黑洞连接无 FIN/RST 永不触发）；看门狗 → TimeoutException →
+    // 退避 ×3 → failed(retryable)
+    await pumpUntil(
+        () => h.engine.task(task.id)?.status == DownloadStatus.failed);
+
+    final t = h.engine.task(task.id)!;
+    expect(t.failureKind, DownloadFailureKind.retryable);
+    expect(t.autoRetries, 3);
+    // 每次尝试实收 deliver 字节：断点累积保留（Range 递增序列）
+    expect(await File(t.partPath!).length(), 4 * deliver);
+    expect(
+        raw.requestLog.map((l) => l.split(' Range:').last).toList(),
+        <String>[
+          '-',
+          'bytes=$deliver-',
+          'bytes=${2 * deliver}-',
+          'bytes=${3 * deliver}-',
+        ]);
+
+    // 代理恢复：一键重试 → Range 续传完成
+    blackHole = false;
+    h.engine.retry(task.id);
+    await pumpUntil(
+        () => h.engine.task(task.id)?.status == DownloadStatus.completed);
+    expect(await File(h.engine.task(task.id)!.filePath!).readAsBytes(), body);
+    expect(raw.requestLog.last, contains('bytes=${4 * deliver}-'));
   });
 
   test('429 → 全队列 30s 冷却：暂停 running/queued，自动恢复完成', () async {

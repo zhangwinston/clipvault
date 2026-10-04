@@ -9,6 +9,8 @@
 ///   （206 追加 / 200 截断重写 / 416 断点失效删 .part 归零重下 /
 ///   中断保留 .part 退避后续传），content-length 校验总量，每 64KB flush；
 /// - 重试：指数退避 800ms×2^n+抖动，3 次后 failed(retryable=true)；
+///   响应体停顿超 60s（[DownloadEngine.stallTimeout]）按瞬态网络错误
+///   中断重试——dio 的 receiveTimeout 只护响应头，代理黑洞化挂死无它
 /// - 403/410：自动回炉重解析刷新直链一次（复用 tweetId，仅刷新 URL
 ///   不丢进度），仍失败才 failed；404 → failed(permanent)；
 /// - 429：全队列 30s 冷却（暂停所有 running/queued，30s 后自动恢复）；
@@ -193,6 +195,7 @@ class DownloadEngine {
     this.cooldownDuration = const Duration(seconds: 30),
     this.progressThrottle = const Duration(milliseconds: 500),
     this.speedWindowDuration = const Duration(seconds: 3),
+    this.stallTimeout = const Duration(seconds: 60),
     this.chunkFlushBytes = 64 * 1024,
     BackoffPolicy? backoff,
     this._urlRefresher,
@@ -230,6 +233,13 @@ class DownloadEngine {
 
   /// 速率滑窗长度（默认 3s，DESIGN §4.3）。
   final Duration speedWindowDuration;
+
+  /// 响应体停顿看门狗：相邻数据块超过该间隔未到达即按瞬态网络错误
+  /// 中断（退避重试）。dio 的 receiveTimeout 只保护响应头（io_adapter
+  /// 对 request.close() 的 future 计时）；代理节点黑洞化（连接不断但
+  /// 永不产字节，sing-box 断网常见形态）会使任务永久停在 running、
+  /// 连 failed 记录都不会产生（2026-10-04 实测反馈）。
+  final Duration stallTimeout;
 
   /// 每累计写入多少字节 flush 一次（默认 64KB，DESIGN §4.3）。
   final int chunkFlushBytes;
@@ -718,13 +728,22 @@ class DownloadEngine {
     }
 
     // 5. 64KB 缓冲循环写 RandomAccessFile（DESIGN §4.3 流式内存）。
+    // 流停顿看门狗：相邻块间隔超 [stallTimeout] 注入 TimeoutException
+    // 中断（await for 的取消会级联终止底层连接），按网络类错误退避。
     final raf = await partFile.open(mode: append ? FileMode.append : FileMode.write);
     final window = SpeedWindow(window: speedWindowDuration);
     var lastEmit = _now();
     var sinceFlush = 0;
     var wrote = bytesDone;
     try {
-      await for (final chunk in body.stream) {
+      await for (final chunk in body.stream.timeout(
+        stallTimeout,
+        onTimeout: (sink) {
+          sink.addError(TimeoutException(
+              'download stalled: no data for ${stallTimeout.inSeconds}s'));
+          sink.close();
+        },
+      )) {
         // 控制信号优先（token.cancel 同时触发底层流终止，此处兜底）。
         if (st.cancelRequested || st.pauseRequested || st.cooldownRequested) {
           _emitProgress(id, wrote, totalBytes, window);
@@ -1005,9 +1024,13 @@ class DownloadEngine {
 
   Future<void> _drain(ResponseBody body) async {
     try {
-      await body.stream.drain<void>();
+      // 排水同样受看门狗约束（错误体黑洞化不得挂起状态分流路径）；
+      // 超时直接关闭流结束排水（内容丢弃，仅错误状态码场景）。
+      await body.stream
+          .timeout(const Duration(seconds: 10), onTimeout: (sink) => sink.close())
+          .drain<void>();
     } catch (_) {
-      // 忽略错误体的排水异常。
+      // 忽略错误体的排水异常（含超时截断）。
     }
   }
 }
