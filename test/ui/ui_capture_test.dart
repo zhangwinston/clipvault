@@ -37,6 +37,7 @@ import 'package:clipvault/sharing/share_receiver.dart';
 import 'package:clipvault/ui/downloads/downloads_screen.dart';
 import 'package:clipvault/ui/downloads/task_tile.dart';
 import 'package:clipvault/ui/history/history_screen.dart';
+import 'package:clipvault/parse/parser_provider.dart';
 import 'package:clipvault/ui/home/home_screen.dart';
 import 'package:clipvault/ui/settings/settings_screen.dart';
 import 'package:clipvault/ui/sheet/quality_sheet.dart';

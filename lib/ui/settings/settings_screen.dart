@@ -14,7 +14,8 @@ import 'package:clipvault/core/net_diag.dart' show runNetworkDiagnostics;
 import 'package:clipvault/settings/settings_controller.dart';
 import 'package:clipvault/ui/common/disclaimer_dialog.dart';
 import 'package:clipvault/ui/downloads/task_tile.dart' show formatBytes;
-import 'package:clipvault/ui/home/home_screen.dart' show endpointConfigRepositoryProvider;
+import 'package:clipvault/parse/parser_provider.dart'
+    show endpointConfigRepositoryProvider;
 
 /// App 版本（诊断展示用；包信息无依赖，随 pubspec 版本手动维护）
 const String kAppVersion = '1.0.0';

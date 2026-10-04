@@ -19,6 +19,7 @@ import 'package:clipvault/core/backoff.dart';
 import 'package:clipvault/core/error.dart';
 import 'package:clipvault/parse/endpoint_config.dart';
 import 'package:clipvault/parse/models.dart';
+import 'package:clipvault/parse/parser_provider.dart';
 import 'package:clipvault/settings/settings_controller.dart';
 import 'package:clipvault/sharing/share_receiver.dart';
 import 'package:clipvault/ui/common/parse_skeleton.dart';

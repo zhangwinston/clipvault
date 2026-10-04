@@ -28,6 +28,8 @@ import 'package:clipvault/download/download_engine.dart';
 import 'package:clipvault/download/download_task.dart' as dt;
 import 'package:clipvault/download/gallery_saver.dart';
 import 'package:clipvault/parse/models.dart';
+import 'package:clipvault/parse/parser_provider.dart'
+    show refreshVariantUrl, tweetParserProvider;
 import 'package:clipvault/settings/settings_controller.dart';
 import 'package:clipvault/ui/common/error_views.dart';
 import 'package:clipvault/ui/common/preview_card.dart' show PreviewCard;
@@ -578,6 +580,18 @@ final Provider<DownloadEngine> downloadEngineProvider = Provider<DownloadEngine>
       final docs = await getApplicationDocumentsDirectory();
       return Directory('${docs.path}${Platform.pathSeparator}downloads');
     }),
+    // 403/410 直链过期重解析（§4.3；2026-10-04 接线修复：此前生产从未
+    // 注入 UrlRefresher，旧任务直链过期后一键重试立即 urlExpired 失败，
+    // 表现为「重试进入下载中但很快失败」）。惰性经 ref.read 取解析器：
+    // 引擎只在刷新时机才需要解析器，避免构造期依赖 FutureProvider。
+    urlRefresher: (tweetId, bitrate) async {
+      try {
+        final parser = await ref.read(tweetParserProvider.future);
+        return await refreshVariantUrl(parser, tweetId, bitrate);
+      } catch (_) {
+        return null; // 端点仓库加载失败等：按 urlExpired 收敛，重试再试
+      }
+    },
   );
   // 并发数偏好接线（§5.4 settings.concurrency → engine.concurrency）：
   // 先同步应用已加载值（引擎首建晚于设置加载的场景），

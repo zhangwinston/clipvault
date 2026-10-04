@@ -253,7 +253,7 @@ D:/Program/xdown/
 
 **重试与错误区分**：
 - 网络类错误：指数退避 800ms×2^n + 抖动，3 次后 `failed(retryable=true)` 一键重试（`core/backoff.dart`，序列被单测断言）；
-- 403/410（video.twimg.com 签名参数过期）→ **自动回炉重解析刷新直链一次**（复用既有 tweetId，仅刷新 URL 不丢进度）再重试——403 不归"锁推"（评委对 P3 的批评在此规避）；
+- 403/410（video.twimg.com 签名参数过期）→ **自动回炉重解析刷新直链一次**（复用既有 tweetId，仅刷新 URL 不丢进度）再重试——403 不归"锁推"（评委对 P3 的批评在此规避）。生产接线（2026-10-04 修复）：`downloadEngineProvider` 注入 UrlRefresher，经 `parse/parser_provider.dart` 的 `refreshVariantUrl` 按 (tweetId, bitrate) 精确匹配变体（同码率优先 mp4；码率档消失/解析失败 → null 归 urlExpired，不换近似码率——.part 属旧编码，换档续传会损坏文件；此前该回调从未接线，旧任务直链过期后一键重试立即失败）；
 - 404 → `failed(permanent)`；
 - **429 → 全队列 30s 冷却**（吸收 P3）：暂停所有 running/queued 任务，30s 后自动恢复，UI 提示"触发限速，队列稍后自动继续"。
 

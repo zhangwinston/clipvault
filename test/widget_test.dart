@@ -14,7 +14,7 @@ import 'package:clipvault/core/error.dart';
 import 'package:clipvault/parse/models.dart';
 import 'package:clipvault/sharing/share_receiver.dart';
 import 'package:clipvault/ui/downloads/task_tile.dart';
-import 'package:clipvault/ui/home/home_screen.dart' show tweetParserProvider;
+import 'package:clipvault/parse/parser_provider.dart' show tweetParserProvider;
 
 class _NullReader implements ClipboardReader {
   @override

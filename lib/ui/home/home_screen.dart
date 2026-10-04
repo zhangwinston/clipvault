@@ -9,21 +9,15 @@ library;
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:clipvault/core/app_http.dart' show createAppDio;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:clipvault/clipboard/clipboard_watcher.dart';
 import 'package:clipvault/core/app_strings.dart';
 import 'package:clipvault/core/backoff.dart';
 import 'package:clipvault/core/error.dart';
 import 'package:clipvault/core/url_extract.dart';
-import 'package:clipvault/parse/endpoint_config.dart';
-import 'package:clipvault/parse/fxtwitter_parser.dart';
 import 'package:clipvault/parse/models.dart';
-import 'package:clipvault/parse/resilient_parser.dart';
-import 'package:clipvault/parse/syndication_client.dart';
-import 'package:clipvault/parse/syndication_parser.dart';
+import 'package:clipvault/parse/parser_provider.dart';
 import 'package:clipvault/settings/settings_controller.dart';
 import 'package:clipvault/sharing/share_receiver.dart';
 import 'package:clipvault/ui/common/brand.dart';
@@ -227,36 +221,6 @@ final Provider<ExponentialBackoff> parseRetryBackoffProvider =
 
 /// 端点配置仓库（DESIGN §6.7 加载顺序的生产装配）：
 /// 内置 assets（rootBundle 加载 assets/config/endpoints.json）→
-/// prefs 缓存（版本更高原子替换）→ 后台远端拉取（remoteUrl 默认空=关闭）。
-final FutureProvider<EndpointConfigRepository> endpointConfigRepositoryProvider =
-    FutureProvider<EndpointConfigRepository>((ref) async {
-  final prefs = await SharedPreferences.getInstance();
-  final repo = EndpointConfigRepository(
-    dio: createAppDio(),
-    prefs: prefs,
-    assetLoader: (path) => rootBundle.loadString(path),
-  );
-  await repo.load();
-  return repo;
-});
-
-/// 解析器注入点：生产装配主备源编排解析器（ResilientParser）——
-/// 主源 syndication + 备源 fxtwitter（随端点配置 fallback.enabled 开关，
-/// 默认关闭即行为等同单主源）；端点配置取自配置仓库当前生效版本
-/// （§6.7；E07 刷新成功后 invalidate 重建，新配置生效）。
-/// 测试以 overrideWith 注入假解析器（FutureProvider 接受同步返回值）。
-final FutureProvider<TweetParser> tweetParserProvider =
-    FutureProvider<TweetParser>((ref) async {
-  final repo = await ref.watch(endpointConfigRepositoryProvider.future);
-  return ResilientParser(
-    primary: SyndicationParser(
-      client: SyndicationClient(dio: createAppDio()),
-      config: repo.current,
-    ),
-    fallback: FxTwitterParser(dio: createAppDio(), config: repo.current),
-  );
-});
-
 /// 首页
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
