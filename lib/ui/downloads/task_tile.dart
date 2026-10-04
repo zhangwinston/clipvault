@@ -30,6 +30,7 @@ import 'package:clipvault/download/gallery_saver.dart';
 import 'package:clipvault/parse/models.dart';
 import 'package:clipvault/settings/settings_controller.dart';
 import 'package:clipvault/ui/common/error_views.dart';
+import 'package:clipvault/ui/common/preview_card.dart' show PreviewCard;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:clipvault/ui/common/navigator_key.dart';
@@ -110,6 +111,9 @@ class TaskItem {
     final v = _meta?['thumbnailUrl'];
     return v is String && v.isNotEmpty ? v : null;
   }
+
+  /// tweetJson 快照中的视频时长（毫秒；缺失/损坏时 null，历史行封面徽标用）。
+  int? get durationMillis => (_meta?['durationMillis'] as num?)?.toInt();
 
   String get title {
     final v = _meta?['text'];
@@ -728,13 +732,25 @@ String formatDateTime(DateTime dt) {
 // 任务行组件
 // ---------------------------------------------------------------------------
 
-/// 单任务行：进度 / 速率 / ETA / 操作（§7.1-3）
+/// 单任务行：进度 / 速率 / ETA / 操作（§7.1-3）。
+///
+/// 2026-10-04 信息收敛：
+/// - 封面统一 80×45（16:9）圆角 8：完成行叠时长徽标、失败行叠暗遮罩 +
+///   红色告警（识别内容靠封面，不再是无差别的灰图标方块）；
+/// - 失败行不再平铺多行错误长文案：行内只挂 4 字短胶囊（分辨率旁），
+///   点击行弹「失败原因」BottomSheet 看全文并可重试；行尾重试收敛为
+///   轻量圆形 tonal 按钮；
+/// - 历史行行尾的 chevron 换 ⋮ 菜单（播放 / 分享 / 复制原链接 / 删除），
+///   明确点按后的去向语义。
 class TaskTile extends StatelessWidget {
   const TaskTile({
     super.key,
     required this.item,
     this.onOpenDetail,
     this.onDeleteRecord,
+    this.onPlay,
+    this.onShare,
+    this.onCopyLink,
     this.commands,
     this.waitingWifi = false,
     this.cooldownActive = false,
@@ -747,6 +763,15 @@ class TaskTile extends StatelessWidget {
 
   /// 终态条目长按删除记录入口（缺省仅删记录，视频保留）
   final VoidCallback? onDeleteRecord;
+
+  /// 历史菜单「播放」（本地文件已清理时由调用方置 null → 菜单项禁用）
+  final VoidCallback? onPlay;
+
+  /// 历史菜单「分享」（share_plus 系统分享面板；文件缺失时置 null）
+  final VoidCallback? onShare;
+
+  /// 历史菜单「复制原链接」（推文 URL 写入剪贴板 + toast）
+  final VoidCallback? onCopyLink;
 
   /// 命令回调来源（空则只读展示，测试/预览用）
   final DownloadCommands? commands;
@@ -811,29 +836,60 @@ class TaskTile extends StatelessWidget {
     final ratio = item.progressRatio;
     final percent = ratio == null ? '--' : '${(ratio * 100).toInt()}%';
     final running = item.status == tbl.DownloadStatus.running;
+    final failed = item.status == tbl.DownloadStatus.failed;
     final statusColor = _statusColor(context);
+    // 失败行短标签：完整话术不平铺在行内，点击行弹详情（2026-10-04）
+    final failedTag = failed ? downloadErrorTag(item.errorCode) : null;
     return ListTile(
-      leading: _thumb(item.thumbUrl),
+      leading: _thumb(context),
       title: Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      // 失败行点按 → 失败原因 BottomSheet（全文 + 重试入口）
+      onTap: failed ? () => _showErrorDetail(context) : null,
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SizedBox(height: 4),
-          // 质量 + 状态词拆分：状态词独立染色加粗（此前与清晰度同串同色）
-          Text.rich(
-            TextSpan(
-              children: [
-                TextSpan(text: '${item.qualityLabel} · '),
-                TextSpan(
-                  text: _statusLabel,
-                  style: TextStyle(
-                    color: statusColor,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
+          // 质量 + 状态词拆分：状态词独立染色加粗（此前与清晰度同串同色）；
+          // 失败行在状态词后追加 4 字短胶囊（替代多行红字错误文案）
+          Row(
+            children: [
+              Flexible(
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(text: '${item.qualityLabel} · '),
+                      TextSpan(
+                        text: _statusLabel,
+                        style: TextStyle(
+                          color: statusColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (failedTag != null) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: scheme.errorContainer,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    failedTag,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: scheme.error,
+                    ),
                   ),
                 ),
               ],
-            ),
+            ],
           ),
           const SizedBox(height: 6),
           // 进度条是「进行中」的可供性——终态行（已取消/失败）不渲染停滞
@@ -926,16 +982,8 @@ class TaskTile extends StatelessWidget {
               fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
-          // 底部行只承载失败原因（有信息增量）；取消态此前在此重复渲染
-          // 「已取消」（状态词已表达）——删除，全行只出现一次（2026-09-30）
-          if (item.status == tbl.DownloadStatus.failed &&
-              item.errorCode != null) ...[
-            const SizedBox(height: 2),
-            Text(
-              downloadErrorMessage(item.errorCode),
-              style: TextStyle(fontSize: 12, color: scheme.error),
-            ),
-          ],
+          // 失败原因长文案已收敛进行点按的 BottomSheet（2026-10-04），
+          // 行内只保留上方 4 字短胶囊。
         ],
       ),
       // 行高随内容：活动态三行（状态/进度/遥测）；终态两行（状态/遥测）
@@ -949,7 +997,7 @@ class TaskTile extends StatelessWidget {
   Widget _historyRow(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return ListTile(
-      leading: _thumb(item.thumbUrl),
+      leading: _thumb(context),
       title: Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(
         '${formatDateTime(item.createdAt)} · ${item.qualityLabel}'
@@ -958,27 +1006,187 @@ class TaskTile extends StatelessWidget {
         '${item.filePath == null ? ' · ${AppStrings.fileCleaned}' : ''}',
         style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
       ),
-      trailing: const Icon(Icons.chevron_right),
+      // 无语义的 chevron 换 ⋮ 菜单（2026-10-04）：明确点按后的去向
+      // （播放/分享/复制原链接/删除）；整行点按仍进详情。
+      trailing: _historyMenu(context),
       onTap: onOpenDetail,
       // 长按 = 仅删记录（视频保留）；点击进详情可彻底删除（记录+文件）
       onLongPress: onDeleteRecord,
     );
   }
 
-  Widget _thumb(String? url) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(6),
-      child: SizedBox(
-        width: 72,
-        height: 44,
-        child: url == null
-            ? const Center(child: Icon(Icons.movie_outlined, size: 20))
-            : Image(
-                image: proxyNetworkImage(url, cacheWidth: 144),
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) =>
-                    const Center(child: Icon(Icons.broken_image_outlined, size: 20)),
+  /// 历史行 ⋮ 菜单：播放 / 分享 / 复制原链接 / 删除。
+  /// 文件缺失（已清理）时播放与分享置灰；删除走 onDeleteRecord 确认链路。
+  Widget _historyMenu(BuildContext context) {
+    Widget menuRow(IconData icon, String label, {Color? color}) => Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: color),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: color == null ? null : TextStyle(color: color),
               ),
+            ),
+          ],
+        );
+    return PopupMenuButton<String>(
+      tooltip: AppStrings.actionMore,
+      icon: const Icon(Icons.more_vert),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      onSelected: (value) {
+        switch (value) {
+          case 'play':
+            onPlay?.call();
+          case 'share':
+            onShare?.call();
+          case 'copy':
+            onCopyLink?.call();
+          case 'delete':
+            onDeleteRecord?.call();
+        }
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem(
+          value: 'play',
+          enabled: onPlay != null,
+          child: menuRow(Icons.play_arrow, AppStrings.actionPlay),
+        ),
+        PopupMenuItem(
+          value: 'share',
+          enabled: onShare != null,
+          child: menuRow(Icons.share_outlined, AppStrings.actionShare),
+        ),
+        PopupMenuItem(
+          value: 'copy',
+          enabled: onCopyLink != null,
+          child: menuRow(Icons.copy, AppStrings.actionCopyLink),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: 'delete',
+          child: menuRow(
+            Icons.delete_outline,
+            AppStrings.actionDelete,
+            color: Theme.of(context).colorScheme.error,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 失败行点按 → 失败原因详情（BottomSheet）：完整错误话术 + 重试入口，
+  /// 替代此前平铺在行内的多行红字（与右侧重试按钮割裂的排版）。
+  void _showErrorDetail(BuildContext context) {
+    final cmds = commands;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                AppStrings.dlErrorDetailTitle,
+                style: Theme.of(sheetContext).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                downloadErrorMessage(item.errorCode),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Theme.of(sheetContext).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              if (cmds != null) ...[
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.tonalIcon(
+                    onPressed: () {
+                      Navigator.of(sheetContext).pop();
+                      cmds.retry(item.id);
+                    },
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text(AppStrings.actionRetry),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 封面缩略图：80×45（16:9 标准比例）圆角 8。
+  /// - 完成/取消行：右下角叠视频时长徽标（识别内容的关键依据）；
+  /// - 失败行：暗遮罩 + 中央红色告警徽标（状态一眼可辨）；
+  /// - 无快照/加载失败：灰底 + 图标兜底（快照缺失多为历史遗留行）。
+  Widget _thumb(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final url = item.thumbUrl;
+    final duration = item.durationMillis;
+    final failed = item.status == tbl.DownloadStatus.failed;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: SizedBox(
+        width: 80,
+        height: 45,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (url == null)
+              ColoredBox(
+                color: scheme.surfaceContainerHighest,
+                child: const Center(child: Icon(Icons.movie_outlined, size: 20)),
+              )
+            else
+              Image(
+                image: proxyNetworkImage(url, cacheWidth: 160),
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => ColoredBox(
+                  color: scheme.surfaceContainerHighest,
+                  child: const Center(
+                      child: Icon(Icons.broken_image_outlined, size: 20)),
+                ),
+              ),
+            if (failed)
+              ColoredBox(
+                color: Colors.black.withValues(alpha: 0.45),
+                child: Center(
+                  child: Icon(Icons.error_outline, size: 20, color: scheme.error),
+                ),
+              )
+            else if (item.isHistory && duration != null && duration > 0)
+              Align(
+                alignment: Alignment.bottomRight,
+                child: Container(
+                  margin: const EdgeInsets.all(4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.7),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                  child: Text(
+                    PreviewCard.formatDuration(duration),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -1027,33 +1235,36 @@ class TaskTile extends StatelessWidget {
       case tbl.DownloadStatus.queued:
         return _cancelButton(context, cmds);
       case tbl.DownloadStatus.failed:
-      case tbl.DownloadStatus.canceled:
-        // 重试从裸图标升级为文字按钮（主题 D）；取消后的续传语义是
-        // 「重新下载」而非「重试」（取消是用户主动行为，2026-09-30）
-        final label = item.status == tbl.DownloadStatus.canceled
-            ? AppStrings.actionRedownload
-            : AppStrings.actionRetry;
-        final retryEntry = Tooltip(
-          message: label,
-          child: FilledButton.tonalIcon(
-            style: FilledButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              minimumSize: const Size(0, 36),
-              textStyle: const TextStyle(fontSize: 13),
-            ),
-            onPressed: () => cmds.retry(item.id),
-            icon: const Icon(Icons.refresh, size: 18),
-            label: Text(label),
-          ),
+        // 失败行重试收敛为轻量圆形 tonal 按钮（2026-10-04）：错误全文与
+        // 重试已在行点按的失败原因 Sheet 内，行尾文字按钮与左侧胶囊
+        // 挤在一行的割裂排版一并消除。
+        return IconButton.filledTonal(
+          visualDensity: VisualDensity.compact,
+          tooltip: AppStrings.actionRetry,
+          onPressed: () => cmds.retry(item.id),
+          icon: const Icon(Icons.refresh, size: 20),
         );
-        if (item.status == tbl.DownloadStatus.failed) return retryEntry;
-        // 已取消行另挂独立删除按钮：仅删记录的轻量操作免确认弹窗
-        // （judge 裁决 2026-09-30），视频文件保留；彻底删除仍走长按
+      case tbl.DownloadStatus.canceled:
+        // 取消后的续传语义是「重新下载」而非「重试」（取消是用户主动
+        // 行为，2026-09-30）；另挂独立删除按钮：仅删记录的轻量操作免确认
+        // 弹窗（judge 裁决 2026-09-30），视频文件保留；彻底删除仍走长按
         // 确认路径（onDeleteRecord）与历史详情页，两档语义不混淆。
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            retryEntry,
+            Tooltip(
+              message: AppStrings.actionRedownload,
+              child: FilledButton.tonalIcon(
+                style: FilledButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  minimumSize: const Size(0, 36),
+                  textStyle: const TextStyle(fontSize: 13),
+                ),
+                onPressed: () => cmds.retry(item.id),
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text(AppStrings.actionRedownload),
+              ),
+            ),
             const SizedBox(width: 4),
             IconButton(
               visualDensity: VisualDensity.compact,

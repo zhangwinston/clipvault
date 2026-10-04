@@ -169,3 +169,22 @@ String downloadErrorMessage(String? errorCode) {
       return AppStrings.errDownloadFailed;
   }
 }
+
+/// 下载任务失败的 errorCode → 行内短标签（2026-10-04 信息收敛）。
+///
+/// 失败行不再平铺完整错误话术：行内只挂短胶囊（点击行弹 BottomSheet 看
+/// [downloadErrorMessage] 全文），取值域与上面完全一致、同源维护。
+String downloadErrorTag(String? errorCode) {
+  return switch (errorCode) {
+    'E01' => AppStrings.errUrlInvalid,
+    'E02' || 'retryable' => AppStrings.errTagNetwork,
+    'E03' => AppStrings.errTagRateLimited,
+    'E04' => AppStrings.errTagTweetNotFound,
+    'E05' => AppStrings.errTagNotVideo,
+    'E06' => AppStrings.errTagRestricted,
+    'E07' => AppStrings.errTagEndpoint,
+    'urlExpired' => AppStrings.errTagUrlExpired,
+    'permanent' => AppStrings.errTagPermanent,
+    _ => AppStrings.errDownloadFailed,
+  };
+}

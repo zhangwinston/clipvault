@@ -111,7 +111,8 @@ void main() {
     expect(find.text(AppStrings.tabDownloads), findsWidgets);
     expect(find.text(AppStrings.tabSettings), findsWidgets);
 
-    // 首页主控件就位（输入框 + 解析按钮）
+    // 首页主控件就位（复合操作条：输入框 + 内嵌 CTA；
+    // 空输入时 CTA 文案为「粘贴并解析」）
     expect(find.byType(TextField), findsOneWidget);
     expect(find.text(AppStrings.homePasteAndParse), findsOneWidget);
 
@@ -154,12 +155,12 @@ void main() {
     await tester.pump(); // 设置异步恢复
     await tester.pump(); // 首帧完成
 
-    // 触发一次成功解析 → 清晰度 Sheet 弹出
+    // 触发一次成功解析 → 清晰度 Sheet 弹出（有输入时 CTA 文案收敛为「解析」）
     await tester.enterText(
       find.byType(TextField),
       'https://x.com/someone/status/1790637656616943991?s=20',
     );
-    await tester.tap(find.text(AppStrings.homePasteAndParse));
+    await tester.tap(find.byKey(const Key('homeParseCta')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text(AppStrings.qualitySheetTitle), findsOneWidget);

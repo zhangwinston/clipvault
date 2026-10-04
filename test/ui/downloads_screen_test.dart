@@ -185,13 +185,80 @@ void main() {
 
     expect(find.text(AppStrings.dlSectionQueued), findsOneWidget);
     expect(find.text(AppStrings.dlSectionFailed), findsOneWidget);
-    // 解析域码 E02 与引擎 failureKind 名 urlExpired 各自映射专属话术
-    expect(find.text(AppStrings.errNetworkTimeout), findsOneWidget);
-    expect(find.text(AppStrings.errDownloadUrlExpired), findsOneWidget);
+    // 2026-10-04 信息收敛：行内只挂 4 字短胶囊，完整话术不平铺在列表
+    expect(find.text(AppStrings.errTagNetwork), findsOneWidget);
+    expect(find.text(AppStrings.errTagUrlExpired), findsOneWidget);
+    expect(find.text(AppStrings.errNetworkTimeout), findsNothing);
+    expect(find.text(AppStrings.errDownloadUrlExpired), findsNothing);
 
-    await tester.tap(find.byTooltip(AppStrings.actionRetry).first);
-    await tester.pump();
+    // 点按失败行 → 「失败原因」BottomSheet 展示完整话术并可重试
+    //（items 顺序：queued(0) / failed E02(1) / failed urlExpired(2)）
+    await tester.tap(find.byType(TaskTile).at(1));
+    await tester.pumpAndSettle();
+    expect(find.text(AppStrings.dlErrorDetailTitle), findsOneWidget);
+    expect(find.text(AppStrings.errNetworkTimeout), findsOneWidget);
+    // Sheet 内唯一的「重试」文本按钮（行尾是 IconButton，无文本冲突）
+    await tester.tap(find.text(AppStrings.actionRetry));
+    await tester.pumpAndSettle();
     expect(commands.log, contains('retry:3'));
+
+    // 行尾轻量圆形重试按钮仍直达（第二行失败任务 urlExpired）
+    await tester.tap(find.byTooltip(AppStrings.actionRetry).last);
+    await tester.pump();
+    expect(commands.log, contains('retry:5'));
+  });
+
+  testWidgets('历史条目 ⋮ 菜单：复制原链接 / 播放（文件缺失置灰）', (tester) async {
+    final commands = FakeDownloadCommands();
+    await _pump(
+      tester,
+      items: [
+        _item(
+          id: 12,
+          status: DownloadStatus.completed,
+          bytesDone: 10 * 1024 * 1024,
+          speedBps: 0,
+          etaSec: null,
+          filePath: '/data/downloads/ok.mp4',
+          tweetJson: _snapshotJson(text: '有文件的历史条目'),
+        ),
+        _item(
+          id: 13,
+          status: DownloadStatus.completed,
+          bytesDone: 10 * 1024 * 1024,
+          speedBps: 0,
+          etaSec: null,
+          filePath: null,
+          tweetJson: _snapshotJson(text: '文件已清理的历史条目'),
+        ),
+      ],
+      commands: commands,
+    );
+
+    // 历史区默认折叠：展开
+    await tester.tap(find.text(AppStrings.dlSectionHistory));
+    await tester.pumpAndSettle();
+
+    // 有文件条目：菜单播放/分享可用，复制原链接写剪贴板并 toast
+    await tester.tap(find.byTooltip(AppStrings.actionMore).first);
+    await tester.pumpAndSettle();
+    expect(find.text(AppStrings.actionPlay), findsOneWidget);
+    expect(find.text(AppStrings.actionCopyLink), findsOneWidget);
+    expect(find.text(AppStrings.actionShare), findsOneWidget);
+    await tester.tap(find.text(AppStrings.actionCopyLink));
+    await tester.pump();
+    expect(find.text(AppStrings.toastLinkCopied), findsOneWidget);
+
+    // 文件缺失条目：播放/分享置灰（enabled=false），复制/删除仍可用
+    await tester.tap(find.byTooltip(AppStrings.actionMore).last);
+    await tester.pumpAndSettle();
+    final itemStates = find
+        .byType(PopupMenuItem<String>)
+        .evaluate()
+        .map((el) => (el.widget as PopupMenuItem<String>).enabled)
+        .toList();
+    // 播放(1)与分享(2)禁用；复制(3)与删除(4)可用
+    expect(itemStates, [false, false, true, true]);
   });
 
   testWidgets('429 冷却通知横幅（引擎 notices 触发）', (tester) async {

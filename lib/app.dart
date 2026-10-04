@@ -45,25 +45,35 @@ class XdownApp extends ConsumerWidget {
     );
   }
 
-  /// 最小品牌主题层（UI-VISUAL-REVIEW 主题 A：此前两主题仅 fromSeed、零组件定制，
-  /// 主色占比实测 <1%——「朴素感」的最大单一来源）。
+  /// 最小品牌主题层（UI-VISUAL-REVIEW 主题 A → 2026-10-04 设计令牌化）。
   ///
-  /// - 卡片：elevation 0 + 12px 圆角 + surfaceContainerLow 底（亮暗都获得分组层次；
-  ///   深色实测唯一有层次的区域正是带 Card 的引导卡）；
+  /// - 页面底色 surface 柔化为带品牌色相的近白（F8FAF9），卡片用
+  ///   surfaceContainerLowest（纯白）+ 浅描边——底/卡对比度拉开的
+  ///   「背景-表面」层级是此前「卡片与背景糊成一片」的根因修复；
+  /// - 卡片：elevation 0 + 16px 圆角 + outlineVariant 0.8px 描边
+  ///   （浅描边替代阴影，质感更现代）；
   /// - 输入框：filled + surfaceContainerHighest 底、聚焦 primary 2px（替换
   ///   「工程原型感」的默认黑灰细描边）；
   /// - 深色显式提亮主色（fromSeed 默认深色 primary 偏暗，按钮/选中态发闷）。
   static ThemeData _lightTheme() {
-    final scheme = ColorScheme.fromSeed(seedColor: const Color(0xFF00696F));
+    final scheme = ColorScheme.fromSeed(
+      seedColor: const Color(0xFF00696F),
+      brightness: Brightness.light,
+      surface: const Color(0xFFF8FAF9),
+      surfaceContainerLowest: Colors.white,
+    );
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
       colorScheme: scheme,
       cardTheme: CardThemeData(
         elevation: 0,
-        color: scheme.surfaceContainerLow,
+        color: scheme.surfaceContainerLowest,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: scheme.outlineVariant, width: 0.8),
+        ),
         margin: EdgeInsets.zero,
       ),
       inputDecorationTheme: InputDecorationTheme(
@@ -99,7 +109,14 @@ class XdownApp extends ConsumerWidget {
         elevation: 0,
         color: scheme.surfaceContainerLow,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        // 深色同款「浅描边替代阴影」：outlineVariant 打五折避免边线抢 foreground
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(
+            color: scheme.outlineVariant.withValues(alpha: 0.5),
+            width: 0.8,
+          ),
+        ),
         margin: EdgeInsets.zero,
       ),
       inputDecorationTheme: InputDecorationTheme(

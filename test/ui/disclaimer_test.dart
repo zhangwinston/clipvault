@@ -254,6 +254,12 @@ void main() {
       120,
       scrollable: find.byType(Scrollable).first,
     );
+    // IA 四分组重排后协议行是末组末行：scrollUntilVisible 命中 cacheExtent
+    // 内的离屏元素即停（中心点仍在视口外），ensureVisible 完整滚入再点按
+    await tester.ensureVisible(
+      find.text(AppStrings.settingsDisclaimerRevisit),
+    );
+    await tester.pump();
     expect(find.text(AppStrings.settingsDisclaimerRevisit), findsOneWidget);
     await tester.tap(find.text(AppStrings.settingsDisclaimerRevisit));
     await tester.pump();

@@ -1,6 +1,8 @@
 /// 我的 Tab（DESIGN §4.6 / §7.1-4）：
-/// 免责声明重看（版本化）/ 权限说明 / 缓存占用与清理 / 诊断信息（端点配置版本、App 版本）
-/// / P2 偏好区（默认画质、并发数、仅 Wi-Fi）。
+/// IA 四分组（2026-10-04）——下载偏好 / 数据与存储 / 高级与网络 / 关于与合规，
+/// 高频配置置顶、高技术属性的代理与网络排障沉底、合规与版本收口；
+/// 免责声明重看（版本化）/ 权限说明 / 缓存占用与清理（行内化）
+/// / 诊断信息（端点配置版本、App 版本）/ P2 偏好（默认画质、并发数、仅 Wi-Fi）。
 library;
 
 import 'package:flutter/material.dart';
@@ -240,12 +242,12 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
   Widget build(BuildContext context) {
     final settings = widget.settings;
     final scheme = Theme.of(context).colorScheme;
-    // 分区顺序（用户反馈调整）：偏好 → 缓存 → 权限 → 法律 → 关于——
-    // 高频偏好置顶，低频法律/关于沉底。分组卡片化（视觉评审主题 H）+
-    // 免责副标题版本语义修正 + 并发数 SegmentedButton。
+    // IA 四分组（2026-10-04）：高频偏好置顶；备份与缓存合并为「数据与存储」；
+    // 代理/诊断/解析服务收口「高级与网络」；版本/权限/协议收口「关于与合规」。
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 8),
       children: [
+        // ---- ① 下载偏好 ----
         _header(context, AppStrings.settingsSectionPrefs),
         _group([
           ListTile(
@@ -298,6 +300,12 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
                     onSelectionChanged: (selection) => ref
                         .read(settingsControllerProvider.notifier)
                         .setConcurrency(selection.first),
+                    // 紧凑密度（2026-10-04）：三段选择器不再占满整行高，
+                    // 行高收窄与兄弟 ListTile 视觉齐平
+                    style: SegmentedButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      textStyle: const TextStyle(fontSize: 13),
+                    ),
                   ),
                 ),
               ],
@@ -313,54 +321,8 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
                 .setWifiOnly(value),
           ),
         ]),
-        _header(context, AppStrings.settingsSectionProxy),
-        _group([
-          // 总开关（用户反馈 2026-09-30）：一键启停，地址常驻免重填；
-          // 副标题仅在开启态呈现生效地址（空地址回落缺省 127.0.0.1:2080），
-          // 关闭态不渲染（UI 评审：开关态由 Switch 自表达）
-          SwitchListTile(
-            secondary: const Icon(Icons.vpn_key_outlined),
-            title: Text(AppStrings.settingsProxyToggle),
-            subtitle: settings.proxyEnabled
-                ? Text(
-                    // 长地址（自建网关/IPv6）超副标题宽不换行，尾部截断保单行
-                    AppStrings.settingsProxyActiveNow +
-                        settings.effectiveProxyAddress,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  )
-                : null,
-            value: settings.proxyEnabled,
-            onChanged: (value) => ref
-                .read(settingsControllerProvider.notifier)
-                .setProxyEnabled(value),
-          ),
-          const Divider(height: 1, indent: 16, endIndent: 16),
-          // 地址框（UI 评审 R2/R3）：无保存按钮——回车/失焦即存；端口
-          // 对照与开关说明长文迁入 ⓘ 弹层，常驻 helper 仅一行
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: TextField(
-              controller: _proxyCtrl,
-              focusNode: _proxyFocus,
-              decoration: InputDecoration(
-                labelText: AppStrings.settingsProxyManualLabel,
-                hintText: AppStrings.settingsProxyManualHint,
-                helperText: AppStrings.settingsProxyManualHelper,
-                errorText: _proxyError,
-                suffixIcon: IconButton(
-                  tooltip: AppStrings.settingsProxyHelpTitle,
-                  icon: const Icon(Icons.help_outline),
-                  onPressed: () => _showProxyHelp(context),
-                ),
-              ),
-              keyboardType: TextInputType.url,
-              onSubmitted: (_) => _saveProxy(),
-              onTapOutside: (_) => _maybeSaveProxy(),
-            ),
-          ),
-        ]),
-        _header(context, AppStrings.settingsSectionBackup),
+        // ---- ② 数据与存储 ----
+        _header(context, AppStrings.settingsSectionStorage),
         _group([
           SwitchListTile(
             secondary: const Icon(Icons.backup_outlined),
@@ -394,61 +356,83 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
               ],
             ),
           ),
-        ]),
-        _header(context, AppStrings.settingsSectionCache),
-        _group([
+          const Divider(height: 1, indent: 16, endIndent: 16),
+          // 缓存清理行内化（2026-10-04）：占用值 + 操作收进单个标准
+          // ListTile，替代「占用行 + 通栏大按钮」两行排版
           ListTile(
-            leading: const Icon(Icons.folder_outlined),
+            leading: const Icon(Icons.cleaning_services_outlined),
             title: Text(AppStrings.settingsCacheUsage),
-            trailing: Text(
-              _cacheBytes == null ? '--' : formatBytes(_cacheBytes!),
-              style: _metaValue(context),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _cacheBytes == null ? '--' : formatBytes(_cacheBytes!),
+                  style: _metaValue(context),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: () => _confirmCleanCache(context),
+                  child: const Text(AppStrings.settingsCacheClean),
+                ),
+              ],
             ),
           ),
-          const Divider(height: 1, indent: 16, endIndent: 16),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () => _confirmCleanCache(context),
-                // 图标语义对齐"删除本地副本"的真实口径（UX-REVIEW P0-4）
-                icon: const Icon(Icons.delete_sweep_outlined),
-                label: const Text(AppStrings.settingsCacheClean),
+        ]),
+        // ---- ③ 高级与网络 ----
+        _header(context, AppStrings.settingsSectionAdvanced),
+        _group([
+          // 总开关（用户反馈 2026-09-30）：一键启停，地址常驻免重填；
+          // 副标题仅在开启态呈现生效地址（空地址回落缺省 127.0.0.1:2080），
+          // 关闭态不渲染（UI 评审：开关态由 Switch 自表达）
+          SwitchListTile(
+            secondary: const Icon(Icons.vpn_key_outlined),
+            title: Text(AppStrings.settingsProxyToggle),
+            subtitle: settings.proxyEnabled
+                ? Text(
+                    // 长地址（自建网关/IPv6）超副标题宽不换行，尾部截断保单行
+                    AppStrings.settingsProxyActiveNow +
+                        settings.effectiveProxyAddress,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  )
+                : null,
+            value: settings.proxyEnabled,
+            onChanged: (value) => ref
+                .read(settingsControllerProvider.notifier)
+                .setProxyEnabled(value),
+          ),
+          // 地址框仅开启态展开（2026-10-04）：代理是高技术属性配置，
+          // 关闭态收起输入框/TUN 提示/ⓘ 的整行横排臃肿区，开关即全部界面；
+          // 地址仍持久保留（settings 层语义），重开免重填。
+          AnimatedCrossFade(
+            duration: const Duration(milliseconds: 250),
+            crossFadeState: settings.proxyEnabled
+                ? CrossFadeState.showFirst
+                : CrossFadeState.showSecond,
+            firstChild: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: TextField(
+                controller: _proxyCtrl,
+                focusNode: _proxyFocus,
+                decoration: InputDecoration(
+                  labelText: AppStrings.settingsProxyManualLabel,
+                  hintText: AppStrings.settingsProxyManualHint,
+                  helperText: AppStrings.settingsProxyManualHelper,
+                  errorText: _proxyError,
+                  suffixIcon: IconButton(
+                    tooltip: AppStrings.settingsProxyHelpTitle,
+                    icon: const Icon(Icons.help_outline),
+                    onPressed: () => _showProxyHelp(context),
+                  ),
+                ),
+                keyboardType: TextInputType.url,
+                onSubmitted: (_) => _saveProxy(),
+                onTapOutside: (_) => _maybeSaveProxy(),
               ),
             ),
-          ),
-        ]),
-        // 隐私与条款（UI 评审 R1：原「权限」「法律」两组合并；权限合规
-        // 长文从常驻副标题迁入点开弹层，与《使用协议》行同款交互）
-        _header(context, AppStrings.settingsSectionPrivacyLegal),
-        _group([
-          ListTile(
-            leading: const Icon(Icons.privacy_tip_outlined),
-            title: Text(AppStrings.settingsPermissionTitle),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _showPermissionDialog(context),
+            secondChild: const SizedBox(width: double.infinity),
           ),
           const Divider(height: 1, indent: 16, endIndent: 16),
-          ListTile(
-            leading: const Icon(Icons.gavel_outlined),
-            title: Text(AppStrings.settingsDisclaimerRevisit),
-            subtitle: Text(_disclaimerSubtitle(settings.disclaimerVersion)),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => showDisclaimerDialog(
-              context,
-              // 重看场景：同意则刷新版本记录；拒绝保持原状（首次启动路径才强制退出）
-              onDecline: () {},
-              scenario: DisclaimerScenario.review,
-            ).then((accepted) {
-              if (accepted) {
-                ref.read(settingsControllerProvider.notifier).acceptDisclaimer();
-              }
-            }),
-          ),
-        ]),
-        _header(context, AppStrings.settingsSectionDiag),
-        _group([
           // 副标题修正：此前错用代理输入框 hint（文案错配，UI 评审 quickWin）；
           // 运行期行内 spinner 替代纯文字反馈（R4），完成即弹结果框
           ListTile(
@@ -481,6 +465,22 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
           ),
           const Divider(height: 1, indent: 16, endIndent: 16),
           ListTile(
+            leading: const Icon(Icons.dns_outlined),
+            title: Text(AppStrings.settingsEndpointVersion),
+            // 只读声明落在它解释的行上（UI 评审 quickWin，替代原页脚）
+            subtitle: Text(AppStrings.settingsEndpointHint),
+            // 优先读端点配置仓库当前生效版本（接线后随 assets 加载/远端热更
+            // 刷新；仓库未就绪时回落 prefs 快照值）
+            trailing: Text(
+              'v${ref.watch(endpointConfigRepositoryProvider).value?.current.version ?? settings.endpointConfigVersion}',
+              style: _metaValue(context),
+            ),
+          ),
+        ]),
+        // ---- ④ 关于与合规 ----
+        _header(context, AppStrings.settingsSectionAbout),
+        _group([
+          ListTile(
             leading: const Icon(Icons.info_outline),
             title: Text(AppStrings.settingsVersion),
             trailing: Row(
@@ -496,17 +496,30 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
             onTap: () => _showRepoDialog(context),
           ),
           const Divider(height: 1, indent: 16, endIndent: 16),
+          // 权限合规长文从常驻副标题迁入点开弹层（UI 评审 R1），
+          // 与《使用协议》行同款交互
           ListTile(
-            leading: const Icon(Icons.dns_outlined),
-            title: Text(AppStrings.settingsEndpointVersion),
-            // 只读声明落在它解释的行上（UI 评审 quickWin，替代原页脚）
-            subtitle: Text(AppStrings.settingsEndpointHint),
-            // 优先读端点配置仓库当前生效版本（接线后随 assets 加载/远端热更
-            // 刷新；仓库未就绪时回落 prefs 快照值）
-            trailing: Text(
-              'v${ref.watch(endpointConfigRepositoryProvider).value?.current.version ?? settings.endpointConfigVersion}',
-              style: _metaValue(context),
-            ),
+            leading: const Icon(Icons.privacy_tip_outlined),
+            title: Text(AppStrings.settingsPermissionTitle),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _showPermissionDialog(context),
+          ),
+          const Divider(height: 1, indent: 16, endIndent: 16),
+          ListTile(
+            leading: const Icon(Icons.gavel_outlined),
+            title: Text(AppStrings.settingsDisclaimerRevisit),
+            subtitle: Text(_disclaimerSubtitle(settings.disclaimerVersion)),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => showDisclaimerDialog(
+              context,
+              // 重看场景：同意则刷新版本记录；拒绝保持原状（首次启动路径才强制退出）
+              onDecline: () {},
+              scenario: DisclaimerScenario.review,
+            ).then((accepted) {
+              if (accepted) {
+                ref.read(settingsControllerProvider.notifier).acceptDisclaimer();
+              }
+            }),
           ),
         ]),
       ],

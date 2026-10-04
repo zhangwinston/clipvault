@@ -72,11 +72,12 @@ abstract final class AppStrings {
   static const String actionCancelParse = '取消解析';
 
   /// 首页使用引导卡（空态三步示意）标题。
+  /// 步骤文案不带序号——行首已有青色编号圆标，正文再出现 ①②③ 即双重编号。
   static const String homeGuideTitle = '三步保存推文视频';
 
-  static const String homeGuideStep1 = '① 在 X 打开视频推文，复制链接';
-  static const String homeGuideStep2 = '② 回到这里粘贴并点「解析」';
-  static const String homeGuideStep3 = '③ 选择清晰度，完成后自动存入相册';
+  static const String homeGuideStep1 = '在 X 打开视频推文，复制链接';
+  static const String homeGuideStep2 = '回到这里粘贴并点「解析」';
+  static const String homeGuideStep3 = '选择清晰度，完成后自动存入相册';
   static const String homeGuideShareHint = '也可以在 X 里直接「分享」链接给 ClipVault';
 
   /// 最近解析卡片区标题（内存态）。
@@ -143,6 +144,27 @@ abstract final class AppStrings {
   /// 下载失败兜底文案（errorCode 未识别时）。
   static const String errDownloadFailed = '下载失败';
 
+  /// 失败行短标签（2026-10-04 信息收敛）：完整错误话术不再平铺在列表行内，
+  /// 行内只挂 4 字短胶囊（点击行弹出失败原因详情），长文案进 BottomSheet。
+  static const String errTagNetwork = '网络超时';
+  static const String errTagRateLimited = '触发限频';
+  static const String errTagTweetNotFound = '推文不存在';
+  static const String errTagNotVideo = '非视频推文';
+  static const String errTagRestricted = '内容受限';
+  static const String errTagEndpoint = '服务异常';
+  static const String errTagUrlExpired = '链接过期';
+  static const String errTagPermanent = '已不可用';
+
+  /// 失败行点击弹出的失败原因详情标题。
+  static const String dlErrorDetailTitle = '失败原因';
+
+  /// 历史条目菜单「复制原链接」与结果 toast。
+  static const String actionCopyLink = '复制原链接';
+  static const String toastLinkCopied = '原链接已复制';
+
+  /// 溢出操作菜单（历史条目行尾 ⋮）tooltip。
+  static const String actionMore = '更多操作';
+
   // ---------------- 任务/历史操作（§7.3）----------------
 
   static const String actionPause = '暂停';
@@ -190,17 +212,14 @@ abstract final class AppStrings {
   /// 从未同意过条款时的副标题。
   static const String settingsDisclaimerNone = '尚未同意《使用协议》';
 
-  /// 隐私与条款区（UI 评审 2026-09-30：原「权限」「法律」两组合并；
-  /// §8.2 合规解释只要求可达，不要求常驻平铺——长文改点开弹层）。
-  static const String settingsSectionPrivacyLegal = '隐私与条款';
+  /// 隐私与条款（并入「关于与合规」组，2026-10-04 IA 四分组）。
   static const String settingsPermissionTitle = '权限说明';
   static const String settingsPermissionBody =
       '当您粘贴链接或回到前台时，系统可能显示粘贴提示横幅或 Toast，'
       '这是操作系统的行为。本应用仅在前台且您操作时读取剪贴板，'
       '用于识别推文链接，不会存储或上传剪贴板内容。';
 
-  /// 缓存区（§4.4 缓存自动清理 + 手动清理）。
-  static const String settingsSectionCache = '缓存';
+  /// 缓存（§4.4 缓存自动清理 + 手动清理；并入「数据与存储」组）。
   static const String settingsCacheUsage = '缓存占用';
   static const String settingsCacheClean = '清理缓存';
   static const String settingsCacheCleaned = '缓存已清理';
@@ -220,16 +239,21 @@ abstract final class AppStrings {
       '可随时在历史中重新保存。';
   static const String albumExplainConfirm = '知道了';
 
-  /// 偏好区（P2）。
-  static const String settingsSectionPrefs = '偏好设置';
+  /// 偏好区（P2；2026-10-04 IA 四分组第 1 组）。
+  static const String settingsSectionPrefs = '下载偏好';
   static const String settingsQualityMode = '默认清晰度';
   static const String settingsQualityHighest = '最高';
   static const String settingsQuality720p = '720P（省流）';
   static const String settingsConcurrency = '同时下载数';
   static const String settingsWifiOnly = '仅 Wi-Fi 下载';
 
-  /// 关于区（§7.4；视觉评审主题 H：原「诊断」术语对普通用户是天书）。
-  static const String settingsSectionDiag = '关于';
+  /// IA 四分组（2026-10-04）：高频偏好 / 数据与存储 / 高技术属性的网络
+  /// 排障沉底到「高级与网络」/ 合规与版本信息收口「关于与合规」。
+  static const String settingsSectionStorage = '数据与存储';
+  static const String settingsSectionAdvanced = '高级与网络';
+  static const String settingsSectionAbout = '关于与合规';
+
+  /// 版本信息（关于与合规组）。
   static const String settingsVersion = '版本信息';
   static const String settingsEndpointVersion = '解析服务配置';
   static const String settingsEndpointHint = '由解析服务下发，只读展示';
@@ -333,9 +357,7 @@ abstract final class AppStrings {
   static const String playerSeekLabel = '横向拖动调节进度';
   static const String playerVolumeLabel = '左侧上下拖动调节音量';
 
-  // ---- 历史备份（§4.7 卸载重装保留历史）----
-  /// 设置分区标题。
-  static const String settingsSectionBackup = '备份';
+  // ---- 历史备份（§4.7 卸载重装保留历史；并入「数据与存储」组）----
   /// 设置项：自动备份开关标题/副标题。
   static const String settingsBackupKeep = '卸载重装后保留历史';
   static const String settingsBackupKeepHint = '自动备份到「下载/ClipVault」';
@@ -350,9 +372,9 @@ abstract final class AppStrings {
   static const String toastRestoreUptodate = '记录均已存在，无需恢复';
 
 
-  // ---- 网络代理（§6.9 手动代理：移动网络无系统代理的根本解法）----
-  /// 设置分区标题。UI 评审 2026-09-30：教学长文迁入 ⓘ 弹层，常驻仅一行。
-  static const String settingsSectionProxy = '网络代理';
+  // ---- 网络代理（§6.9 手动代理：移动网络无系统代理的根本解法；
+  // 并入「高级与网络」组，2026-10-04 IA 四分组）----
+  /// UI 评审 2026-09-30：教学长文迁入 ⓘ 弹层，常驻仅一行。
   static const String settingsProxyToggle = '使用代理';
   static const String settingsProxyActiveNow = '当前生效：';
   static const String settingsProxyManualLabel = '代理地址';

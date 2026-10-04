@@ -1,5 +1,6 @@
 /// 首页（DESIGN §7.1-1）：
-/// 大号 URL 输入框（清空 ×、一键粘贴）+「解析」主按钮；
+/// 复合操作条（输入框内嵌清空 × 与主 CTA——空输入时 CTA 是
+/// 「粘贴并解析」，有输入时收敛为「解析」）；
 /// 剪贴板 resume 命中 → 顶部内联横幅（同链接去重，§4.1-2）；
 /// 解析中骨架卡片 + 耗时计时；解析成功 → QualitySheet → 开始下载 → toast；
 /// 最近解析卡片（内存态）+ 七类错误视图。
@@ -277,6 +278,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    // 输入变化驱动 CTA 动态形态（空=「粘贴并解析」/ 有内容=「解析」）
+    _input.addListener(_onInputChanged);
     // 挂载剪贴板生命周期观察者（resume 时机读取，§8.2）
     _clipboardWatcher = ref.read(clipboardWatcherProvider.notifier);
     WidgetsBinding.instance.addObserver(_clipboardWatcher);
@@ -295,6 +298,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     });
   }
 
+  void _onInputChanged() {
+    // 重建以切换 CTA 图标/文案与清空按钮的显隐
+    if (mounted) setState(() {});
+  }
+
   void _onSharedText(String text) {
     if (!mounted) return;
     _input.text = text;
@@ -305,7 +313,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void dispose() {
     _shareSub?.cancel();
     WidgetsBinding.instance.removeObserver(_clipboardWatcher);
-    _input.dispose();
+    _input
+      ..removeListener(_onInputChanged)
+      ..dispose();
     super.dispose();
   }
 
@@ -499,30 +509,70 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
                 ),
             ],
+            // 复合操作条（2026-10-04：输入框与主 CTA 上下堆叠 → 单容器融合，
+            // 输入与解析本是同一行为闭环，不再分占两行首屏高度）：
+            // - 空输入：CTA 为「粘贴并解析」（读剪贴板回退，_pasteAndParse）；
+            // - 有输入：CTA 收敛为「解析」，且露出清空按钮；
+            // - 主题的全局 filled/描边输入样式在此整体关闭，改为容器自绘。
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              child: TextField(
-                controller: _input,
-                // 单行 filled 输入（主题 G：两行高输入框 + 双按钮 → 轻输入 + 单 CTA）
-                decoration: InputDecoration(
-                  hintText: AppStrings.homeInputHint,
-                  suffixIcon: IconButton(
-                    tooltip: AppStrings.homeClear,
-                    onPressed: () => setState(() => _input.clear()),
-                    icon: const Icon(Icons.clear),
-                  ),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: scheme.outlineVariant),
                 ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              child: SizedBox(
-                height: 48,
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _pasteAndParse,
-                  icon: const Icon(Icons.link),
-                  label: const Text(AppStrings.homePasteAndParse),
+                padding: const EdgeInsets.fromLTRB(12, 4, 6, 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _input,
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) => _pasteAndParse(),
+                        decoration: const InputDecoration(
+                          hintText: AppStrings.homeInputHint,
+                          isDense: true,
+                          filled: false,
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(vertical: 14),
+                        ),
+                      ),
+                    ),
+                    if (_input.text.isNotEmpty)
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        tooltip: AppStrings.homeClear,
+                        onPressed: _input.clear,
+                        icon: const Icon(Icons.clear, size: 20),
+                      ),
+                    const SizedBox(width: 4),
+                    FilledButton.icon(
+                      // 稳定键：widget 测试以 byKey 触达（文案随输入态切换）
+                      key: const Key('homeParseCta'),
+                      style: FilledButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: _pasteAndParse,
+                      icon: Icon(
+                        _input.text.trim().isEmpty
+                            ? Icons.content_paste
+                            : Icons.bolt,
+                        size: 18,
+                      ),
+                      label: Text(
+                        _input.text.trim().isEmpty
+                            ? AppStrings.homePasteAndParse
+                            : AppStrings.homeParse,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -611,9 +661,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
-/// 首页空态三步引导卡（P1-3 + 视觉评审主题 G 重做）：
-/// 顶部层叠视频帧插画（代码自绘，零资产依赖）建立媒体感与视觉重心，
-/// 三步改编号圆标（此前 18px 图标+文字行无层级），分享提示分隔收底。
+/// 首页空态三步引导卡（P1-3 → 2026-10-04 重做）：
+/// 顶部极简「链接 → 媒体」插画（单帧 16:9 卡 + 播放圆钮 + 链接角标，
+/// 柔光打底，替代此前半透明多帧层叠的「廉价感」占位）；
+/// 三步编号圆标（正文文案不再重复 ①②③ 序号），
+/// 分享提示收底改半透明胶囊通知条样式。
 /// 无结果且无最近解析时展示；首次解析成功后由条件自然移除。
 class _HomeGuideCard extends StatelessWidget {
   const _HomeGuideCard();
@@ -627,7 +679,7 @@ class _HomeGuideCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _StackedFramesIllustration(),
+          const _GuideHero(),
           Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -643,22 +695,32 @@ class _HomeGuideCard extends StatelessWidget {
                 _step(context, 2, AppStrings.homeGuideStep2),
                 const SizedBox(height: 10),
                 _step(context, 3, AppStrings.homeGuideStep3),
-                const Divider(height: 24, indent: 4, endIndent: 4),
-                Row(
-                  children: [
-                    Icon(Icons.ios_share,
-                        size: 16, color: scheme.onSurfaceVariant),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        AppStrings.homeGuideShareHint,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: scheme.onSurfaceVariant,
+                const SizedBox(height: 16),
+                // 分享提示：半透明主色胶囊条（2026-10-04：分隔线 + 裸灰字
+                // → 通知条样式，视觉上从「步骤」中独立出来）
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: scheme.primaryContainer.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.share_outlined,
+                          size: 16, color: scheme.primary),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          AppStrings.homeGuideShareHint,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: scheme.onSurfaceVariant,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -696,70 +758,76 @@ class _HomeGuideCard extends StatelessWidget {
   }
 }
 
-/// 层叠 16:9 视频帧插画（主题 G：三张渐变帧错位层叠 + 中央播放圆钮，
-/// 建立「视频收藏」的产品视觉记忆点；#00696F→#4DD0D9 品牌渐变）。
-class _StackedFramesIllustration extends StatelessWidget {
-  const _StackedFramesIllustration();
+/// 极简空态插画（2026-10-04）：单一 16:9 媒体帧 + 播放圆钮 + 链接角标，
+/// primaryContainer 柔光打底——语义直白「粘链接 → 得视频」，
+/// 替代此前三张半透明渐变帧错位层叠的抽象占位（零资产依赖，代码自绘）。
+class _GuideHero extends StatelessWidget {
+  const _GuideHero();
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    Widget frame(double alpha, {bool front = false}) {
-      return Container(
-        width: 176,
-        height: 99, // 16:9
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              scheme.primary.withValues(alpha: alpha),
-              const Color(0xFF4DD0D9).withValues(alpha: alpha),
-            ],
-          ),
-          borderRadius: BorderRadius.circular(10),
-          border: front
-              ? null
-              : Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
-        ),
-      );
-    }
-
     return Container(
       width: double.infinity,
       color: scheme.surfaceContainerLow,
-      padding: const EdgeInsets.symmetric(vertical: 20),
-      child: SizedBox(
-        height: 123,
+      padding: const EdgeInsets.symmetric(vertical: 28),
+      child: Center(
         child: Stack(
+          clipBehavior: Clip.none,
           alignment: Alignment.center,
           children: [
-            // 背层两张错位帧
-            Transform.translate(
-              offset: const Offset(-22, -6),
-              child: frame(0.25),
-            ),
-            Transform.translate(
-              offset: const Offset(22, 8),
-              child: frame(0.4),
-            ),
-            // 前层帧 + 播放圆钮
-            frame(0.9, front: true),
+            // 柔光：primaryContainer 径向渐隐，建立视觉重心不发闷
             Container(
-              width: 44,
-              height: 44,
+              width: 224,
+              height: 224,
               decoration: BoxDecoration(
-                color: Colors.white,
                 shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.2),
-                    blurRadius: 8,
-                  ),
-                ],
+                gradient: RadialGradient(
+                  colors: [
+                    scheme.primaryContainer.withValues(alpha: 0.55),
+                    scheme.primaryContainer.withValues(alpha: 0.0),
+                  ],
+                  stops: const [0.0, 1.0],
+                ),
               ),
-              child: Icon(Icons.play_arrow,
-                  size: 28, color: scheme.primary),
+            ),
+            // 媒体帧：16:9 白底圆角卡 + 描边（与全局卡片语言一致）
+            Container(
+              width: 160,
+              height: 90,
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerLowest,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: scheme.outlineVariant),
+              ),
+              alignment: Alignment.center,
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  shape: BoxShape.circle,
+                ),
+                child:
+                    Icon(Icons.play_arrow, size: 24, color: scheme.primary),
+              ),
+            ),
+            // 链接角标：帧右上角探出的 primary 圆钮，点明「链接」入口语义
+            Positioned(
+              top: -8,
+              right: -8,
+              child: Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: scheme.primary,
+                  shape: BoxShape.circle,
+                  border: Border.fromBorderSide(
+                    BorderSide(color: scheme.surfaceContainerLow, width: 2.5),
+                  ),
+                ),
+                child: Icon(Icons.link, size: 16, color: scheme.onPrimary),
+              ),
             ),
           ],
         ),

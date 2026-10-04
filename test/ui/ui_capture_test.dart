@@ -27,7 +27,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:clipvault/app.dart';
 import 'package:clipvault/clipboard/clipboard_watcher.dart';
-import 'package:clipvault/core/app_strings.dart';
 import 'package:clipvault/core/backoff.dart';
 import 'package:clipvault/core/error.dart';
 import 'package:clipvault/data/database.dart';
@@ -408,7 +407,7 @@ void main() {
     await tester.pump();
     // 填入链接并开始解析（悬挂解析器 → 骨架卡持续）
     await tester.enterText(find.byType(TextField), _kUrl);
-    await tester.tap(find.text(AppStrings.homePasteAndParse));
+    await tester.tap(find.byKey(const Key('homeParseCta')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 1200));
     await expectLater(
@@ -440,7 +439,7 @@ void main() {
       ),
     );
     await tester.enterText(find.byType(TextField), _kUrl);
-    await tester.tap(find.text(AppStrings.homePasteAndParse));
+    await tester.tap(find.byKey(const Key('homeParseCta')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     await expectLater(

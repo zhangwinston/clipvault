@@ -13,9 +13,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:clipvault/core/app_strings.dart';
 import 'package:clipvault/data/tables.dart' as tbl;
+import 'package:clipvault/player/player_screen.dart';
 import 'package:clipvault/settings/settings_controller.dart';
 import 'package:clipvault/ui/common/info_banner.dart';
 import 'package:clipvault/ui/downloads/task_tile.dart';
@@ -225,6 +227,39 @@ class _DownloadList extends ConsumerWidget {
               ),
               onDeleteRecord: () =>
                   _confirmDeleteRecord(context, commands, item),
+              // ⋮ 菜单动作（2026-10-04）：文件缺失时播放/分享置灰
+              onPlay: item.filePath == null
+                  ? null
+                  : () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              PlayerScreen(filePath: item.filePath!),
+                        ),
+                      ),
+              onShare: item.filePath == null
+                  ? null
+                  : () async {
+                      final ok = await ref
+                          .read(historyCommandsProvider)
+                          .shareFile(item.filePath!);
+                      // 按钮存在就必须有可感知的响应（分享面板拉起失败反馈）
+                      if (!ok && context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content: Text(AppStrings.shareUnavailable)),
+                        );
+                      }
+                    },
+              onCopyLink: () {
+                Clipboard.setData(
+                  ClipboardData(
+                    text: 'https://x.com/i/status/${item.tweetId}',
+                  ),
+                );
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text(AppStrings.toastLinkCopied)),
+                );
+              },
             ),
         ]),
       ],
