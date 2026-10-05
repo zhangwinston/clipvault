@@ -363,7 +363,8 @@ abstract final class AppStrings {
   // ---- 历史备份（§4.7 卸载重装保留历史；并入「数据与存储」组）----
   /// 设置项：自动备份开关标题/副标题。
   static const String settingsBackupKeep = '卸载重装后保留历史';
-  static const String settingsBackupKeepHint = '自动备份到「下载/ClipVault」';
+  static const String settingsBackupKeepHint =
+      '自动备份到「下载/ClipVault」；重装后在下载页或设置中一键恢复';
 
   /// 设置项：手动操作按钮与结果提示。
   static const String actionBackupNow = '立即备份';
@@ -373,6 +374,7 @@ abstract final class AppStrings {
   static const String toastRestoreDone = '已恢复 {n} 条记录';
   static const String toastRestoreEmpty = '没有可用的备份';
   static const String toastRestoreUptodate = '记录均已存在，无需恢复';
+  static const String dlRestoreFromBackup = '从备份恢复历史';
 
 
   // ---- 网络代理（§6.9 手动代理：移动网络无系统代理的根本解法；

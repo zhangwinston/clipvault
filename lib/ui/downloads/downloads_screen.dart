@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:clipvault/backup/backup_service.dart' show activeBackupService;
 import 'package:clipvault/core/app_strings.dart';
 import 'package:clipvault/data/tables.dart' as tbl;
 import 'package:clipvault/player/player_screen.dart';
@@ -119,6 +120,25 @@ class _DownloadList extends ConsumerWidget {
 
   final List<TaskItem> items;
 
+  /// 空态一键恢复（§4.7）：直读失败自动回落 SAF 选择器（预定位
+  /// Download/ClipVault）；恢复后按需申请相册读权限复活视频路径
+  ///（孤儿视频无权限不可见，见 BackupService._reviveVideoPaths）。
+  Future<void> _restoreFromBackup(BuildContext context) async {
+    final svc = activeBackupService;
+    if (svc == null) return;
+    final n = await svc.restoreManual();
+    if (!context.mounted) return;
+    final String msg;
+    if (n < 0) {
+      msg = AppStrings.toastRestoreEmpty;
+    } else if (n == 0) {
+      msg = AppStrings.toastRestoreUptodate;
+    } else {
+      msg = AppStrings.toastRestoreDone.replaceFirst('{n}', '$n');
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final commands = ref.watch(downloadCommandsProvider);
@@ -173,6 +193,21 @@ class _DownloadList extends ConsumerWidget {
                   onPressed: () => ref.read(homeTabProvider.notifier).select(0),
                   icon: const Icon(Icons.link),
                   label: const Text(AppStrings.dlEmptyAction),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            // 重装恢复入口（2026-10-05）：备份文件在公共 Downloads 跨卸载
+            // 保留，但 Android 11+ 孤儿行对重装 App 不可见，静默读不可行
+            // ——一键触发 SAF 选择（预定位 Download/ClipVault，两步点完）
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 260),
+              child: SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => _restoreFromBackup(context),
+                  icon: const Icon(Icons.settings_backup_restore),
+                  label: const Text(AppStrings.dlRestoreFromBackup),
                 ),
               ),
             ),

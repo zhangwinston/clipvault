@@ -304,6 +304,16 @@ D:/Program/xdown/
 1. **CI 签名轮换**：runner 每次冷启动重新生成 debug keystore → 每个 continuous APK 签名不同 → 重装后系统视为「另一个 App」，公共 Downloads 备份文件所有权不归属新安装 → 直读静默失败（同根因导致无法覆盖安装）。修复：`signingConfigs.ci`——检测到 `android/app/clipvault-ci.jks`（CI 经 `CV_KEYSTORE_*` secrets 注入固定钥）即用之，否则回落 debug。注意 openssl 3.x 默认加密算法 Java keystore 读取器不认（password incorrect），须 `pkcs12 -export -legacy` 兼容打包。
 2. **作用域存储可见性**：跨卸载后非媒体文件对新安装本就不可见/不可读。兜底：`restoreManual` 直读失败 → 自动弹 SAF 文件选择器（`ACTION_OPEN_DOCUMENT`，用户选中即获临时读授权），任何签名/所有权断裂均可救回 `Download/ClipVault/clipvault_backup.json`。
 
+**2026-10-05 实证修正：「同包名重装 owner 复联」假设不成立，静默恢复在 Android 11+ 架构性不可行**
+
+用户实测固定签名后卸载重装历史仍不可见。实证结论：Android 11+ 卸载时 MediaStore 行 owner 清空（孤儿化），**同包名重装不自动复联**；无权限 App 对 Downloads 非媒体孤儿行既不可查询也不可读，且任何运行时权限（READ_EXTERNAL_STORAGE / READ_MEDIA_*）均只覆盖媒体文件——**除 MANAGE_EXTERNAL_STORAGE（Play 政策禁用）外无静默通道**。文件本身仍在磁盘（Download/ClipVault/ 与 Movies/ClipVault/），SAF 可救。
+
+新恢复流程（诚实交付）：
+- **入口前置**：下载页空态新增「从备份恢复历史」按钮（重装用户落地即见；设置页入口保留）；
+- **SAF 预定位**：`ACTION_OPEN_DOCUMENT` 带 `EXTRA_INITIAL_URI` 指向 `Download/ClipVault`，两步点完；
+- **视频路径复活**（新增 `READ_MEDIA_VIDEO` / ≤32 `READ_EXTERNAL_STORAGE`，用户显式触发恢复时按需请求，权限观感与 §8.1 最小化原则一致——恢复的是**本 App 自己写入的**公共相册视频而非用户既有媒体库）：`BackupService._reviveVideoPaths` 两段式——先无权回查（自有贡献恒可见，命中即返零弹窗），未命中才请求授权重查孤儿视频，命中回写 filePath/albumSavedAt（播放/分享/重存直接可用）；拒绝授权则元数据完整导入、路径留空可后再试；
+- 云恢复（方案①）在有备份传输的设备（GMS / OEM 云）仍为零交互首选。
+
 ---
 
 ## ⑤ 数据模型（Dart 类字段级）与本地存储

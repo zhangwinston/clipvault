@@ -14,14 +14,28 @@ import 'package:clipvault/data/database.dart';
 import 'package:clipvault/data/history_repository.dart';
 
 /// 假存储：内存字符串 + 可编程的相册路径回查。
+///
+/// 可见性建模（对应作用域存储语义）：
+/// - [galleryPaths]：自有贡献，无权恒可见（正常/覆盖安装场景）；
+/// - [orphanPaths]：重装孤儿，授权相册读权限后才可见；
+/// - [grantPermission]：权限弹窗的用户应答；请求次数记入
+///   [permissionRequests]（断言「幸福路径不弹窗」用）。
 class FakeBackupStore implements BackupStore {
   String? saved;
 
   /// SAF 兜底通道的模拟载荷（非 null 时 pickAndRead 返回它）
   String? pickPayload;
   final Map<String, String> galleryPaths;
+  final Map<String, String> orphanPaths;
+  final bool grantPermission;
+  int permissionRequests = 0;
+  bool _granted = false;
 
-  FakeBackupStore({this.galleryPaths = const {}});
+  FakeBackupStore({
+    this.galleryPaths = const {},
+    this.orphanPaths = const {},
+    this.grantPermission = false,
+  });
 
   @override
   Future<bool> get isSupported async => true;
@@ -36,10 +50,21 @@ class FakeBackupStore implements BackupStore {
   Future<String?> read() async => saved;
 
   @override
-  Future<String?> findVideoPathByName(String name) async => galleryPaths[name];
+  Future<String?> findVideoPathByName(String name) async {
+    final own = galleryPaths[name];
+    if (own != null) return own;
+    return _granted ? orphanPaths[name] : null;
+  }
 
   @override
   Future<String?> pickAndRead() async => pickPayload;
+
+  @override
+  Future<bool> requestVideoReadPermission() async {
+    permissionRequests++;
+    _granted = _granted || grantPermission;
+    return _granted;
+  }
 }
 
 /// 每用例独立的内存仓库（drift 内存库不可复用；沿 db.close() 拆卸惯例）。
@@ -182,5 +207,80 @@ void main() {
     expect(await svc.restoreIfEmpty(), 0);
     // 损坏 = 「不可读」→ restoreManual 归入 -1 语义（区别于 0=已去重无新增）
     expect(await svc.restoreManual(), -1);
+  });
+
+  /// 单条已完成记录的备份载荷（2026-10-05 视频路径复活用例）。
+  String payloadWithCompleted(String tweetId) => jsonEncode({
+        'version': 1,
+        'exportedAt': '2026-10-05T00:00:00Z',
+        'records': [
+          {
+            'tweetId': tweetId,
+            'variantUrl': 'https://video.example/$tweetId.mp4',
+            'contentType': 'mp4',
+            'bitrate': 2176000,
+            'qualityLabel': '720p (HD)',
+            'status': 'completed',
+            'bytesTotal': 1024,
+            'bytesDone': 1024,
+            'tweetJson': '{"author":"测试作者"}',
+            'albumSavedAt': '2026-10-04T00:00:00Z',
+          },
+        ],
+      });
+
+  test('重装恢复（回归 2026-10-05）：SAF 兜底导入 + 授权后孤儿视频路径复活',
+      () async {
+    final t = _newRepo();
+    addTearDown(t.db.close);
+    final store = FakeBackupStore(
+      orphanPaths: {
+        '1790637656616943998_2176000.mp4':
+            '/storage/emulated/0/Movies/ClipVault/1790637656616943998_2176000.mp4',
+      },
+      grantPermission: true,
+    )..pickPayload = payloadWithCompleted('1790637656616943998');
+
+    final n = await BackupService(repo: t.repo, store: store).restoreManual();
+
+    expect(n, 1);
+    final row = (await t.repo.getAll()).single;
+    expect(row.filePath, contains('Movies/ClipVault'), reason: '授权后孤儿视频复活');
+    expect(row.albumSavedAt, isNotNull);
+    expect(store.permissionRequests, 1, reason: '无权回查未命中才弹一次');
+  });
+
+  test('重装恢复：用户拒绝相册权限 → 元数据完整导入，路径留空（可后再试）',
+      () async {
+    final t = _newRepo();
+    addTearDown(t.db.close);
+    final store = FakeBackupStore(grantPermission: false)
+      ..pickPayload = payloadWithCompleted('1790637656616943999');
+
+    final n = await BackupService(repo: t.repo, store: store).restoreManual();
+
+    expect(n, 1);
+    final row = (await t.repo.getAll()).single;
+    expect(row.status, 'completed');
+    expect(row.filePath, isNull, reason: '拒绝授权：路径不复活');
+    expect(row.tweetJson, contains('测试作者'), reason: '元数据仍完整');
+    expect(store.permissionRequests, 1);
+  });
+
+  test('幸福路径不弹权限：自有贡献视频无权可见，命中即返', () async {
+    final t = _newRepo();
+    addTearDown(t.db.close);
+    final store = FakeBackupStore(
+      galleryPaths: {
+        '1790637656616944000_2176000.mp4':
+            '/storage/emulated/0/Movies/ClipVault/1790637656616944000_2176000.mp4',
+      },
+    )..pickPayload = payloadWithCompleted('1790637656616944000');
+
+    final n = await BackupService(repo: t.repo, store: store).restoreManual();
+
+    expect(n, 1);
+    expect((await t.repo.getAll()).single.filePath, contains('Movies/ClipVault'));
+    expect(store.permissionRequests, 0, reason: '全部命中即不得弹权限窗');
   });
 }

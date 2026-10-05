@@ -28,6 +28,12 @@ abstract class BackupStore {
   /// 默认空实现（Android 覆写；iOS/桌面暂无）。
   Future<String?> pickAndRead() async => null;
 
+  /// 申请相册视频读取权限（Android 重装恢复场景：Movies/ClipVault 的
+  /// 已下载视频与备份 JSON 同为「孤儿」，无权限对重装后的 App 不可见，
+  /// 需 READ_MEDIA_VIDEO / READ_EXTERNAL_STORAGE 运行时授权后回查路径）。
+  /// 其他平台无此概念，恒 true（不需要也不弹窗）。
+  Future<bool> requestVideoReadPermission() async => true;
+
   /// 按文件名回查相册视频绝对路径（Android 专属能力；其他平台返回 null）。
   /// 文件名约定 {tweetId}_{bitrate}.mp4（引擎转正命名，§4.3）。
   Future<String?> findVideoPathByName(String name);
@@ -82,6 +88,16 @@ class AndroidMediaStoreBackupStore implements BackupStore {
       return await _channel.invokeMethod<String>('pickAndReadBackup');
     } catch (_) {
       return null;
+    }
+  }
+
+  @override
+  Future<bool> requestVideoReadPermission() async {
+    try {
+      return await _channel.invokeMethod<bool>('requestVideoReadPermission') ??
+          false;
+    } catch (_) {
+      return false;
     }
   }
 }

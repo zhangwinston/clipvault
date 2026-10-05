@@ -2,10 +2,14 @@ package com.clipvault.clipvault
 
 import android.content.ContentValues
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.DocumentsContract
 import android.provider.MediaStore
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -34,10 +38,16 @@ class MainActivity : FlutterActivity() {
 
         /** SAF 兜底恢复的文件选择请求码 */
         const val REQ_PICK_BACKUP = 4711
+
+        /** 相册视频读权限的请求码（重装恢复视频路径复活） */
+        const val REQ_VIDEO_READ = 4712
     }
 
     /** SAF 选择备份文件的挂起通道结果（onActivityResult 回填）。 */
     private var pendingBackupPick: MethodChannel.Result? = null
+
+    /** 运行时权限请求的挂起通道结果（onRequestPermissionsResult 回填）。 */
+    private var pendingPermission: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(engine: FlutterEngine) {
         super.configureFlutterEngine(engine)
@@ -54,8 +64,10 @@ class MainActivity : FlutterActivity() {
                     )
                     "pickAndReadBackup" -> {
                         // SAF 兜底：跨卸载后旧备份文件所有权不归属新安装
-                        // （签名变化/作用域存储可见性），直读会失败——弹系统
-                        // 文件选择器，用户选中即获临时读授权（ACTION_OPEN_DOCUMENT）
+                        // （2026-10-05 实证：Android 11+ 同包名重装不自动复联
+                        // owner，Downloads 非媒体孤儿行对无权限 App 不可见），
+                        // 直读必失败——弹系统文件选择器，选中即获临时读授权。
+                        // EXTRA_INITIAL_URI 预定位到 Download/ClipVault，两步点完
                         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                             addCategory(Intent.CATEGORY_OPENABLE)
                             type = "*/*"
@@ -63,9 +75,25 @@ class MainActivity : FlutterActivity() {
                                 Intent.EXTRA_MIME_TYPES,
                                 arrayOf("application/json", "application/octet-stream"),
                             )
+                            try {
+                                putExtra(
+                                    DocumentsContract.EXTRA_INITIAL_URI,
+                                    DocumentsContract.buildDocumentUri(
+                                        "com.android.externalstorage.documents",
+                                        "primary:Download/ClipVault",
+                                    ),
+                                )
+                            } catch (_: Exception) {
+                                // 个别 ROM 不认初始 URI：回落默认目录，无害
+                            }
                         }
                         pendingBackupPick = result
                         startActivityForResult(intent, REQ_PICK_BACKUP)
+                    }
+                    "requestVideoReadPermission" -> {
+                        // 重装恢复场景：Movies/ClipVault 的已下载视频与备份
+                        // 同为孤儿，授权相册读权限后 MediaStore 才可见可读
+                        requestVideoReadPermission(result)
                     }
                     else -> result.notImplemented()
                 }
@@ -194,5 +222,46 @@ class MainActivity : FlutterActivity() {
             return
         }
         super.onActivityResult(requestCode, resultCode, data)
+    }
+
+    /**
+     * 相册视频读权限（重装恢复的视频路径复活用）：已授权直接回 true；
+     * 否则弹系统运行时权限窗，结果经 onRequestPermissionsResult 回填。
+     */
+    private fun requestVideoReadPermission(result: MethodChannel.Result) {
+        val perms = if (Build.VERSION.SDK_INT >= 33) {
+            arrayOf(android.Manifest.permission.READ_MEDIA_VIDEO)
+        } else if (Build.VERSION.SDK_INT >= 29) {
+            arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+        } else {
+            // <29 走遗留外部存储（已有 WRITE 权限即读写一致），无需另请
+            result.success(true)
+            return
+        }
+        if (perms.all {
+                ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+            }
+        ) {
+            result.success(true)
+            return
+        }
+        pendingPermission = result
+        ActivityCompat.requestPermissions(this, perms, REQ_VIDEO_READ)
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        if (requestCode == REQ_VIDEO_READ) {
+            val pending = pendingPermission ?: return
+            pendingPermission = null
+            val granted = grantResults.isNotEmpty() &&
+                grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+            pending.success(granted)
+            return
+        }
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
     }
 }

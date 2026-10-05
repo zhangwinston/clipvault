@@ -118,6 +118,7 @@ class BackupService {
       final payload = await store.read();
       if (payload == null || payload.isEmpty) return 0;
       final n = await _importPayload(payload);
+      if (n > 0) await _reviveVideoPaths();
       return n;
     } catch (_) {
       return 0;
@@ -139,9 +140,53 @@ class BackupService {
       }
       if (payload == null || payload.isEmpty) return -1;
       final n = await _importPayload(payload, dedupe: true);
+      if (n > 0) await _reviveVideoPaths();
       return n;
     } catch (_) {
       return -1;
+    }
+  }
+
+  /// 视频路径复活：导入的已完成行 filePath 缺失时按文件名回查相册。
+  ///
+  /// 两段式（避免幸福路径的多余权限弹窗）：先无权回查——自有贡献文件
+  /// 恒可见（正常导入/同签名覆盖场景命中即返）；有未命中才申请相册读
+  /// 权限重试——重装场景视频与备份同为孤儿（owner 已清空，2026-10-05
+  /// 实证：Android 11+ 同包名重装不自动复联 owner），无权限不可见，
+  /// READ_MEDIA_VIDEO/READ_EXTERNAL_STORAGE 授权后可见可读。
+  Future<void> _reviveVideoPaths() async {
+    final completed = (await repo.getAll())
+        .where((r) =>
+            r.status == DownloadStatus.completed.name &&
+            (r.filePath == null || r.filePath!.isEmpty))
+        .toList();
+    if (completed.isEmpty) return;
+
+    Future<void> lookup(List<DownloadRecord> rows) async {
+      for (final r in rows) {
+        final name = '${r.tweetId}_${r.bitrate}.${r.contentType}';
+        final path = await store.findVideoPathByName(name);
+        if (path == null || path.isEmpty) continue;
+        await repo.apply(
+          r.id,
+          DownloadRecordsCompanion(
+            filePath: Value(path),
+            albumSavedAt: Value(r.albumSavedAt ?? DateTime.now().toUtc()),
+          ),
+        );
+      }
+    }
+
+    await lookup(completed);
+
+    // 未命中的行仍缺路径 → 可能是孤儿视频不可见：申请权限后重查一轮。
+    final still = (await repo.getAll())
+        .where((r) =>
+            r.status == DownloadStatus.completed.name &&
+            (r.filePath == null || r.filePath!.isEmpty))
+        .toList();
+    if (still.isNotEmpty && await store.requestVideoReadPermission()) {
+      await lookup(still);
     }
   }
 

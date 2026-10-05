@@ -56,4 +56,7 @@ class DocumentsBackupStore implements BackupStore {
 
   @override
   Future<String?> pickAndRead() async => null;
+
+  @override
+  Future<bool> requestVideoReadPermission() async => true; // iOS 无此概念
 }

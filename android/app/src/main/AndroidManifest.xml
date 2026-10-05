@@ -3,13 +3,20 @@
          Xdown（上架名 ClipVault）Android 权限配置 —— DESIGN §8.1 权限最小化
          原则：首屏零索取；全部运行时权限延迟到对应功能首次使用时请求。
 
-         明确不申请 READ_MEDIA_VIDEO（DESIGN §8.1 / §1.4 吸收 P4 论证，
-         纠正 PRD 4.2-3 过度索取）：本应用不读取用户既有媒体库——
-         历史缩略图走 URL 网络渲染；自有下载文件经应用私有路径自查自读。
+         不读取用户既有媒体库（§1.4 吸收 P4 论证，纠正 PRD 4.2-3 过度索取）；
+         相册视频读权限仅用于「重装恢复」场景（2026-10-05）：已下载视频在
+         公共相册卸载后成孤儿（同包名重装不自动复联 owner），授权后
+         MediaStore 才可见，用于找回历史记录里的已下载文件路径——在用户
+         显式触发「从备份恢复」时按需请求，非恢复场景永不索取。
          ================================================================ -->
 
     <!-- 网络访问：解析端点与直链分片下载必需（normal 级，无用户感知） -->
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- 重装恢复：找回已下载视频（用户显式触发恢复时按需请求） -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
 
     <!-- P1：常驻下载进度通知（flutter_local_notifications，Android 13+ 运行时权限）。
          仅在「首次开始下载」场景请求；被拒不阻塞下载，仅无进度通知。
