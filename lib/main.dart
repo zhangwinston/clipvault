@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:clipvault/app.dart';
 import 'package:clipvault/backup/backup_service.dart';
 import 'package:clipvault/core/app_http.dart' show SystemProxy;
+import 'package:clipvault/core/local_thumbnail.dart' show ThumbnailStore;
 import 'package:clipvault/backup/backup_store.dart';
 import 'package:clipvault/data/history_repository.dart';
 import 'package:clipvault/data/tables.dart';
@@ -197,4 +198,6 @@ Future<void> _cleanCacheFiles(HistoryRepository repo) async {
       }
     }
   }
+  // 本地缩略图整体清空（可再拉取；目录懒重建）
+  await ThumbnailStore.purgeAll();
 }

@@ -10,7 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:clipvault/core/app_strings.dart';
-import 'package:clipvault/core/proxy_image.dart';
+import 'package:clipvault/core/local_thumbnail.dart';
 import 'package:clipvault/ui/common/retry_image.dart';
 import 'package:clipvault/data/database.dart' show DownloadRecord;
 import 'package:clipvault/player/player_screen.dart';
@@ -48,6 +48,9 @@ class RepoHistoryCommands implements HistoryCommands {
     // 文件由调用方依据返回行执行」；不清即成缓存统计/清理均不可见的孤儿）
     final row = await _ref.read(historyRepositoryProvider).deleteById(id);
     if (row == null) return;
+    // 本地缩略图随行清理（可再拉取，同推文兄弟行缺失时懒拉自愈）
+    await ThumbnailStore.purgeFor(
+        row.tweetId, TaskItem.thumbnailUrlOf(row.tweetJson));
     for (final path in [row.filePath, row.partPath]) {
       if (path == null || path.isEmpty) continue;
       try {
@@ -149,7 +152,7 @@ class HistoryScreen extends ConsumerWidget {
                             )
                           : RetryImage(
                               image:
-                                  proxyNetworkImage(view.thumbUrl!, cacheWidth: 640),
+                                  localThumbnail(view.tweetId, view.thumbUrl!, cacheWidth: 640),
                               fit: BoxFit.cover,
                               errorBuilder: (_) => ColoredBox(
                                 color: scheme.surfaceContainerHighest,

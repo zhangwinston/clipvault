@@ -18,7 +18,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:drift/drift.dart' show LazyDatabase, Value;
 import 'package:drift/native.dart' show NativeDatabase;
 import 'package:flutter/material.dart';
-import 'package:clipvault/core/proxy_image.dart';
+import 'package:clipvault/core/local_thumbnail.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:clipvault/core/app_strings.dart';
 import 'package:clipvault/data/database.dart';
@@ -113,6 +113,22 @@ class TaskItem {
   String? get thumbUrl {
     final v = _meta?['thumbnailUrl'];
     return v is String && v.isNotEmpty ? v : null;
+  }
+
+  /// 从 tweetJson 快照提取缩略图 URL（删记录时清理本地缩略图用；
+  /// 与 [thumbUrl] 同解析口径的静态版，不构造 TaskItem）。
+  static String? thumbnailUrlOf(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) {
+        final v = decoded['thumbnailUrl'];
+        return v is String && v.isNotEmpty ? v : null;
+      }
+    } catch (_) {
+      // 快照损坏：无缩略图可清理
+    }
+    return null;
   }
 
   /// tweetJson 快照中的视频时长（毫秒；缺失/损坏时 null，历史行封面徽标用）。
@@ -343,6 +359,12 @@ class EngineDownloadCommands implements DownloadCommands {
       _engine.cancel(engineIdOf(id));
     }
     final row = await _repo.deleteById(id);
+    if (row != null) {
+      // 本地缩略图随行清理（可再拉取，与 .part 的活动任务守卫不同，
+      // 无需引用检查——同推文兄弟行命中缺失时懒拉一次即自愈）
+      await ThumbnailStore.purgeFor(
+          row.tweetId, TaskItem.thumbnailUrlOf(row.tweetJson));
+    }
     final part = row?.partPath;
     if (part == null || part.isEmpty) return;
     // .part 由业务键确定性派生（'{tweetId}_{bitrate}.part'），同键重下的
@@ -1164,7 +1186,7 @@ class TaskTile extends StatelessWidget {
               )
             else
               RetryImage(
-                image: proxyNetworkImage(url, cacheWidth: 160),
+                image: localThumbnail(item.tweetId, url, cacheWidth: 160),
                 fit: BoxFit.cover,
                 errorBuilder: (_) => ColoredBox(
                   color: scheme.surfaceContainerHighest,

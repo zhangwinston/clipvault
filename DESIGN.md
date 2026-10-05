@@ -392,7 +392,7 @@ settings.autoCleanDays int / settings.autoCleanMaxBytes int   -- P2
 
 - 结构化库：`appDocuments/xdown.db`（drift/SQLite 单文件，响应式 Stream）；
 - 下载工件：`appDocuments/downloads/{tweetId}_{bitrate}.mp4` + 同名 `.part`；
-- 缩略图：`Image.network` + `cacheWidth` 降采样，全局 `ImageCache` 上限压至 30MB；代理感知出口 `ProxyNetworkImage`（§6.9 配套，2026-09-30）+ **就绪门闩与自愈重试**（2026-10-04）：①ImageCache 对失败的加载会把 completer 永久留在 `_pendingImages`（framework 仅在成功首帧或显式 evict 时移除，同 key 重建永不重试）——`RetryImage` 组件错误后 `ImageProvider.evict` + 换代 `ValueKey` 重建，有界重试（默认 3 次 ×3s）；②启动竞态期（代理解析/手动注入未完成，proxySetting 仍 DIRECT）图片请求必失败且被 ①永久滞留——`SystemProxy.ready` 门闩（refresh/启动注入任一完成放行，2s 兜底）由 `ProxyNetworkImage._load` 先行 await；
+- 缩略图：**本地优先**（2026-10-05 用户决策：持久化记录的缩略图不依赖网络）——`appDocuments/thumbs/{tweetId}_{fnv8(url)}.jpg`，`LocalThumbnailImage` 本地命中零网络解码（`ImmutableBuffer.fromFilePath` 零拷贝），本地缺失才经统一代理出口拉取一次落盘（老记录免迁移自动本地化，并发同图去重）；生命周期随记录行（删记录/清缓存清理，可再拉取故无需活动引用守卫）；下载任务卡与历史详情走本地，解析预览卡（在线瞬间 UI）仍走 `ProxyNetworkImage` 网络；降采样与自愈：`cacheWidth` 经 ResizeImage + `RetryImage` 有界重试（2026-10-04，对抗 ImageCache 失败 completer 永久滞留 `_pendingImages` 的框架行为）+ `SystemProxy.ready` 就绪门闩（挡启动竞态期 DIRECT 直连必失败）；全局 `ImageCache` 上限 30MB 仅作内存层；
 - 无安全存储需求：零账号零令牌，无敏感物。
 
 ---
