@@ -13,7 +13,7 @@ import 'dart:typed_data';
 import 'dart:ui' show ImmutableBuffer;
 
 import 'package:flutter/painting.dart'
-    show ImageConfiguration, ImageStream, ImageStreamListener;
+    show ImageConfiguration, ImageStreamListener;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:clipvault/core/app_http.dart' show SystemProxy;
@@ -65,7 +65,7 @@ void main() {
         i.dispose();
         if (!done.isCompleted) done.complete();
       }, onError: (Object e, StackTrace? s) {
-        if (!done.isCompleted) done.completeError(e ?? StateError('load'));
+        if (!done.isCompleted) done.completeError(e);
       }),
     );
     await done.future.timeout(const Duration(seconds: 5));
