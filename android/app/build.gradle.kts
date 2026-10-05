@@ -58,6 +58,13 @@ android {
                 storePassword = "ClipVaultCI2026"
                 keyAlias = "clipvault"
                 keyPassword = "ClipVaultCI2026"
+                // v1（JAR 签名）显式开启（2026-10-05）：minSdk≥24 时 AGP 默认
+                // 只出 v2/v3，而部分国产 ROM 安装器（纯净模式/安全预检层）
+                // 只解析 META-INF 的 v1，误报「安装包未包含任何证书」——
+                // 侧载分发（无商店）必须 v1+v2+v3 齐备，多几 KB 无害。
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }

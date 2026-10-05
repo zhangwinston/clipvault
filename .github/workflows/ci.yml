@@ -194,7 +194,7 @@ jobs:
 
           | 产物 | 说明 |
           |---|---|
-          | \`clipvault-android.apk\` | Release 构建 · debug 签名（可直接侧载安装；上架商店需替换正式签名） |
+          | \`clipvault-android.apk\` | Release 构建 · CI 固定钥签名 v1+v2+v3（可直接侧载安装；上架商店需换正式专用钥） |
           | \`clipvault-ios-unsigned.ipa\` | Release 构建 · **未签名**（安装需自签：AltStore / Sideloadly / 企业证书） |
 
           > 本 release 随 main 每次推送滚动更新：标签 \`continuous\` 始终指向最新构建，历史版本请到 [Actions](https://github.com/zhangwinston/clipvault/actions) 构建产物区。"
