@@ -239,10 +239,9 @@ class EngineDownloadCommands implements DownloadCommands {
     this._repo, {
     bool Function()? wifiOnlyEnabled,
     ConnectivityChecker? connectivity,
-    Future<void> Function()? proxyPreflight,
+    this._proxyPreflight,
   })  : _wifiOnlyEnabled = wifiOnlyEnabled ?? _wifiOffByDefault,
-        _connectivity = connectivity ?? const _NoopConnectivityChecker(),
-        _proxyPreflight = proxyPreflight {
+        _connectivity = connectivity ?? const _NoopConnectivityChecker() {
     // Wi-Fi 恢复 → 先代理预检再补交挂起任务（订阅随 dispose 取消）：
     // 蜂窝开代理回 Wi-Fi 的场景，补交的下载直接走预检定好的路径。
     _wifiSub = _connectivity.onWifiChanged.listen((onWifi) {

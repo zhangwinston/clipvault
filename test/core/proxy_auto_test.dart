@@ -237,9 +237,10 @@ void main() {
   group('方向 A：候选探测与自动启用', () {
     test('候选优先级：保存地址通过即启用，fallback 端口不再探', () async {
       final settings = FakeSettings(effectiveProxyAddress: '127.0.0.1:9999');
-      final probes = ProbeScript()
-        ..tcp = (_, port) => port == 9999
-        ..connect = (_, port) => port == 9999;
+      // 探测脚本用独立赋值语句：级联段接函数字面量 RHS 存在解析歧义
+      final probes = ProbeScript();
+      probes.tcp = (String host, int port) => port == 9999;
+      probes.connect = (String host, int port) => port == 9999;
       final c = buildCoordinator(settings, FakeClock(), probes);
       addTearDown(c.dispose);
 
@@ -253,9 +254,9 @@ void main() {
 
     test('两阶段淘汰：TCP 开放但 CONNECT 不通 → 不启用 + 冷却', () async {
       final settings = FakeSettings();
-      final probes = ProbeScript()
-        ..tcp = (_, __) => true
-        ..connect = (_, __) => false;
+      final probes = ProbeScript();
+      probes.tcp = (_, _) => true;
+      probes.connect = (_, _) => false;
       final clock = FakeClock();
       final c = buildCoordinator(settings, clock, probes);
       addTearDown(c.dispose);
@@ -280,12 +281,12 @@ void main() {
     test('单飞：并发两次触发共享一轮探测，只启用一次', () async {
       final settings = FakeSettings();
       final gate = Completer<void>();
-      final probes = ProbeScript()
-        ..tcp = (_, __) async {
-          await gate.future;
-          return true;
-        }
-        ..connect = (_, __) => true;
+      final probes = ProbeScript();
+      probes.tcp = (_, _) async {
+        await gate.future;
+        return true;
+      };
+      probes.connect = (_, _) => true;
       final c = buildCoordinator(settings, FakeClock(), probes);
       addTearDown(c.dispose);
 
@@ -340,10 +341,10 @@ void main() {
 
     test('直连不可用 + manual 关 + DIRECT → 预检里预探测启用', () async {
       final settings = FakeSettings(proxyEnabled: false);
-      final probes = ProbeScript()
-        ..direct = (_) => false
-        ..tcp = (_, __) => true
-        ..connect = (_, __) => true;
+      final probes = ProbeScript();
+      probes.direct = (_) => false;
+      probes.tcp = (_, _) => true;
+      probes.connect = (_, _) => true;
       final c = buildCoordinator(settings, FakeClock(), probes);
       addTearDown(c.dispose);
 
@@ -384,8 +385,8 @@ void main() {
       // 网络变化：直连断了（effective 回到 DIRECT），想反向启用
       effective.value = 'DIRECT';
       probes.direct = (_) => false;
-      probes.tcp = (_, __) => true;
-      probes.connect = (_, __) => true;
+      probes.tcp = (_, _) => true;
+      probes.connect = (_, _) => true;
       clock.advance(const Duration(seconds: 30));
       expect(await c.onDirectFailure(), isFalse); // 稳定期内抑制
       expect(probes.countOf('tcp'), 0);
@@ -408,8 +409,8 @@ void main() {
 
       effective.value = 'DIRECT';
       probes.direct = (_) => false;
-      probes.tcp = (_, __) => true;
-      probes.connect = (_, __) => true;
+      probes.tcp = (_, _) => true;
+      probes.connect = (_, _) => true;
       c.markUserTouched(); // 装配层的设置差分监听在手动改时调用
       expect(await c.onDirectFailure(), isTrue);
     });
@@ -419,13 +420,13 @@ void main() {
     test('直连探测挂死时 preflight 在预算内返回，工作后台续跑', () async {
       final settings = FakeSettings(proxyEnabled: false);
       final gate = Completer<void>();
-      final probes = ProbeScript()
-        ..direct = (_) async {
-          await gate.future;
-          return false;
-        }
-        ..tcp = (_, __) => true
-        ..connect = (_, __) => true;
+      final probes = ProbeScript();
+      probes.direct = (_) async {
+        await gate.future;
+        return false;
+      };
+      probes.tcp = (_, _) => true;
+      probes.connect = (_, _) => true;
       final c = buildCoordinator(settings, FakeClock(), probes,
           preflightBudget: const Duration(milliseconds: 100));
       addTearDown(c.dispose);

@@ -19,8 +19,9 @@ import 'package:clipvault/core/proxy_auto.dart';
 import 'package:clipvault/settings/settings_controller.dart';
 
 /// 自动写入进行中标记：state 赋值在 autoEnable/autoDisable 的 await 链
-/// 内同步发生，标志位可靠覆盖该窗口。
-class _AutoWriteGate {
+/// 内同步发生，标志位可靠覆盖该窗口。装配层的设置差分监听共用同一实例
+/// 区分「协调器自动写入」与「用户手动改设置」。
+class AutoWriteGate {
   bool inFlight = false;
 
   Future<T> around<T>(Future<T> Function() fn) async {
@@ -35,11 +36,13 @@ class _AutoWriteGate {
 
 /// [ProxyAutoSettings] 的 Riverpod 适配。
 class RiverpodProxyAutoSettings implements ProxyAutoSettings {
-  RiverpodProxyAutoSettings(this._ref, [_AutoWriteGate? gate])
-      : _gate = gate ?? _AutoWriteGate();
+  RiverpodProxyAutoSettings(this._ref, {AutoWriteGate? gate})
+      : gate = gate ?? AutoWriteGate();
 
   final Ref _ref;
-  final _AutoWriteGate _gate;
+
+  /// 自动写入门闩（装配层差分监听读 inFlight；测试可直接构造本类）。
+  final AutoWriteGate gate;
 
   @override
   ProxyAutoSettingsView read() {
@@ -61,7 +64,7 @@ class RiverpodProxyAutoSettings implements ProxyAutoSettings {
   }
 
   @override
-  Future<void> autoEnable(String address) => _gate.around(() async {
+  Future<void> autoEnable(String address) => gate.around(() async {
         final notifier = _ref.read(settingsControllerProvider.notifier);
         // 组合既有公共写路径：两步序列（先地址后开关）无 broken 中间态
         //（地址先存、开关未变仍直连），各步内部 `_serialized` 与用户
@@ -73,7 +76,7 @@ class RiverpodProxyAutoSettings implements ProxyAutoSettings {
       });
 
   @override
-  Future<void> autoDisable() => _gate.around(() async {
+  Future<void> autoDisable() => gate.around(() async {
         await _ref
             .read(settingsControllerProvider.notifier)
             .setProxyEnabled(false);
@@ -84,9 +87,9 @@ class RiverpodProxyAutoSettings implements ProxyAutoSettings {
 /// `ref.read(proxyAutoCoordinatorProvider)` 取用。
 final Provider<ProxyAutoCoordinator> proxyAutoCoordinatorProvider =
     Provider<ProxyAutoCoordinator>((ref) {
-  final gate = _AutoWriteGate();
+  final settings = RiverpodProxyAutoSettings(ref);
   final coordinator = ProxyAutoCoordinator(
-    settings: RiverpodProxyAutoSettings(ref, gate),
+    settings: settings,
     now: DateTime.now,
     // fail-closed：判定异常按非 Wi-Fi（方向 B 是「关代理」的破坏性动作，
     // 必须保守；与下载侧 onWifiProvider 的 fail-open 语义有意相反）。
@@ -104,7 +107,7 @@ final Provider<ProxyAutoCoordinator> proxyAutoCoordinatorProvider =
   ref.listen(settingsControllerProvider, (previous, next) {
     final prev = previous?.value;
     final cur = next.value;
-    if (prev == null || cur == null || gate.inFlight) return;
+    if (prev == null || cur == null || settings.gate.inFlight) return;
     if (prev.proxyEnabled != cur.proxyEnabled ||
         prev.proxyAddress != cur.proxyAddress) {
       coordinator.markUserTouched();

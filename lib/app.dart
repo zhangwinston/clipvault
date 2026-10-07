@@ -11,7 +11,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:clipvault/core/app_strings.dart';
-import 'package:clipvault/core/proxy_auto.dart' show ProxyAutoEvent;
+import 'package:clipvault/core/proxy_auto.dart'
+    show ProxyAutoDisabledEvent, ProxyAutoEnabledEvent, ProxyAutoEvent;
 import 'package:clipvault/download/download_task.dart' as dt;
 import 'package:clipvault/settings/proxy_auto_provider.dart'
     show proxyAutoCoordinatorProvider;

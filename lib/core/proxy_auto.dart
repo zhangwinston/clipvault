@@ -100,12 +100,15 @@ class _DirectCheckResult {
 /// 自动代理调节协调器。
 class ProxyAutoCoordinator {
   ProxyAutoCoordinator({
-    required ProxyAutoSettings settings,
-    required ProxyNowFn now,
-    Future<bool> Function()? isOnWifi,
+    // 私有命名参数（Dart 3.12+，对齐 download_engine 构造模式）：调用方
+    // 仍以公共名 settings: / now: / isOnWifi: / fallbackPorts: /
+    // directHosts: 传参。
+    required this._settings,
+    required this._now,
+    this._isOnWifi,
     String Function()? effectiveProxySetting,
-    List<int> fallbackPorts = const [2080, 7890, 7897, 10808, 8118, 1080],
-    List<String> directHosts = const [kDiagHost, 'video.twimg.com'],
+    this._fallbackPorts = const [2080, 7890, 7897, 10808, 8118, 1080],
+    this._directHosts = const [kDiagHost, 'video.twimg.com'],
     this.tcpProbeTimeout = const Duration(milliseconds: 800),
     this.connectProbeTimeout = const Duration(seconds: 5),
     this.directProbeTimeout = const Duration(seconds: 3),
@@ -119,15 +122,8 @@ class ProxyAutoCoordinator {
     Future<bool> Function(String host, int port)? tcpProbe,
     Future<bool> Function(String host, int port)? proxyConnectProbe,
     Future<bool> Function(String host)? directHttpsProbe,
-  })  : _settings = settings,
-        _now = now,
-        _isOnWifi = isOnWifi,
-        _effectiveProxySetting =
+  })  : _effectiveProxySetting =
             effectiveProxySetting ?? (() => SystemProxy.proxySetting),
-        _fallbackPorts = fallbackPorts,
-        _directHosts = directHosts,
-        _connectProbeUrl = connectProbeUrl,
-        _directProbeUrlOf = directProbeUrlOf,
         _tcpProbe = tcpProbe ??
             ((host, port) => _defaultTcpProbe(host, port, tcpProbeTimeout)),
         _proxyConnectProbe = proxyConnectProbe ??
@@ -146,8 +142,6 @@ class ProxyAutoCoordinator {
   final Future<bool> Function(String, int) _tcpProbe;
   final Future<bool> Function(String, int) _proxyConnectProbe;
   final Future<bool> Function(String) _directHttpsProbe;
-  final String _connectProbeUrl;
-  final String Function(String) _directProbeUrlOf;
 
   /// 候选 TCP 端口探测超时（本机回环无 DNS 开销，800ms 足够宽容）。
   final Duration tcpProbeTimeout;
