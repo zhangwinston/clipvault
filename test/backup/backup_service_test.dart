@@ -2,6 +2,7 @@
 /// 全部离线——内存 drift 仓库 + 假 BackupStore，不触平台通道/磁盘公共区。
 library;
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:drift/drift.dart' hide Column, isNull, isNotNull;
@@ -23,6 +24,15 @@ import 'package:clipvault/data/history_repository.dart';
 class FakeBackupStore implements BackupStore {
   String? saved;
 
+  /// 写入次数（并发共享用例断言「在途复用不重复写」）
+  int writes = 0;
+
+  /// 可选写入门闩（非 null 时 write 阻塞至完成——构造在途窗口用）
+  Completer<void>? writeGate;
+
+  /// 模拟写入失败（诊断透出用例）
+  bool failWrite = false;
+
   /// SAF 兜底通道的模拟载荷（非 null 时 pickAndRead 返回它）
   String? pickPayload;
   final Map<String, String> galleryPaths;
@@ -42,8 +52,11 @@ class FakeBackupStore implements BackupStore {
 
   @override
   Future<bool> write(String json) async {
+    final gate = writeGate;
+    if (gate != null) await gate.future;
+    writes++;
     saved = json;
-    return true;
+    return !failWrite;
   }
 
   @override
@@ -282,5 +295,40 @@ void main() {
     expect(n, 1);
     expect((await t.repo.getAll()).single.filePath, contains('Movies/ClipVault'));
     expect(store.permissionRequests, 0, reason: '全部命中即不得弹权限窗');
+  });
+
+  test('并发导出共享同一轮在途 Future（手动点击撞上自动导出不再判失败）', () async {
+    final t = _newRepo();
+    addTearDown(t.db.close);
+    final store = FakeBackupStore()..writeGate = Completer<void>();
+    final svc = BackupService(repo: t.repo, store: store);
+    await _insert(t.repo, tweetId: '1790637656616943991');
+
+    // 第一轮在途（写入被门闩挂住）时第二次触发：复用同一轮而非失败
+    final r1 = svc.exportNow();
+    final r2 = svc.exportNow();
+    store.writeGate!.complete();
+    expect(await r1, isTrue);
+    expect(await r2, isTrue);
+    expect(store.writes, 1, reason: '在途复用，不重复写');
+
+    // 完成后单飞引用已清：新触发真正执行新一轮
+    expect(await svc.exportNow(), isTrue);
+    expect(store.writes, 2);
+  });
+
+  test('失败原因透出：lastExportError 携带根因（诊断上 UI 用）', () async {
+    final t = _newRepo();
+    addTearDown(t.db.close);
+    final store = FakeBackupStore()..failWrite = true;
+    final svc = BackupService(repo: t.repo, store: store);
+    await _insert(t.repo, tweetId: '1790637656616943991');
+
+    expect(await svc.exportNow(), isFalse);
+    expect(svc.lastExportError, isNotNull);
+    // 透出后最近一次成功会清空
+    store.failWrite = false;
+    expect(await svc.exportNow(), isTrue);
+    expect(svc.lastExportError, isNull);
   });
 }

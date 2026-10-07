@@ -621,9 +621,15 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
     if (svc == null) return;
     final ok = await svc.exportNow();
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(ok ? AppStrings.toastBackupDone : AppStrings.toastBackupFailed),
-    ));
+    var msg = ok ? AppStrings.toastBackupDone : AppStrings.toastBackupFailed;
+    // 失败时附带根因（诊断透出：「备份失败」双层吞错后无从定位，
+    // 2026-10-07 真机排查起带上 UI；根因收敛后可回收为固定文案）
+    final reason = svc.lastExportError;
+    if (!ok && reason != null && reason.isNotEmpty) {
+      final brief = reason.length > 80 ? '${reason.substring(0, 80)}…' : reason;
+      msg = '$msg（$brief）';
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   /// 从备份恢复（§4.7 手动入口；按 (tweetId, bitrate) 去重合并）

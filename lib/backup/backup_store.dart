@@ -14,6 +14,10 @@ import 'documents_backup_store.dart';
 export 'documents_backup_store.dart';
 
 abstract class BackupStore {
+  /// 最近一次操作的失败原因（诊断透出用：实现方在 catch / 假值路径
+  /// 赋值，BackupService.exportNow 失败时带上 UI，2026-10-07）。
+  Object? lastError;
+
   /// 平台是否支持跨卸载保留（Android API 29+ / iOS 恒 true）。
   Future<bool> get isSupported;
 
@@ -50,16 +54,21 @@ class AndroidMediaStoreBackupStore implements BackupStore {
   Future<bool> get isSupported async {
     try {
       return await _channel.invokeMethod<bool>('isSupported') ?? false;
-    } catch (_) {
+    } catch (e) {
+      lastError = e;
       return false;
     }
   }
 
   @override
   Future<bool> write(String json) async {
+    lastError = null;
     try {
-      return await _channel.invokeMethod<bool>('writeBackup', {'json': json}) ?? false;
-    } catch (_) {
+      final ok = await _channel.invokeMethod<bool>('writeBackup', {'json': json}) ?? false;
+      if (!ok) lastError = '原生写入返回失败（详见 logcat ClipVaultBackup）';
+      return ok;
+    } catch (e) {
+      lastError = e;
       return false;
     }
   }

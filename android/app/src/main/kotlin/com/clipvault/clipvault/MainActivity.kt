@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.MediaStore
+import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
@@ -30,7 +31,16 @@ class MainActivity : FlutterActivity() {
     private companion object {
         const val CHANNEL = "clipvault/backup"
         const val NETWORK_CHANNEL = "clipvault/network"
+
+        /** 备份文件名前缀（读取按前缀取最新：同名 json 与名称冲突时的
+         *  时间戳回退名都能命中，2026-10-07） */
+        const val BACKUP_PREFIX = "clipvault_backup"
+
+        /** 常规备份文件名（快路径删旧插新，常态单文件） */
         const val BACKUP_NAME = "clipvault_backup.json"
+
+        /** 诊断日志 tag（「备份失败」双层吞错后 logcat 侧的根因出口） */
+        const val TAG = "ClipVaultBackup"
 
         // Environment.DIRECTORY_DOWNLOADS 的字面量（"Download"）——Java 静态
         // 字段对 Kotlin const 非编译期常量，这里取字面量保持 const 语义
@@ -124,15 +134,16 @@ class MainActivity : FlutterActivity() {
             }
     }
 
-    /** 查询 Downloads/ClipVault 下最新一条同名文件的 Uri（跨安装可见）。 */
+    /** 查询 Downloads/ClipVault 下最新的备份 Uri（前缀匹配：同名 json 与
+     *  时间戳回退名都命中；跨安装可见性同前——仅自有贡献行）。 */
     private fun queryBackupUri(): Uri? {
         val projection = arrayOf(MediaStore.Downloads._ID)
-        val selection = "${MediaStore.Downloads.DISPLAY_NAME} = ?"
+        val selection = "${MediaStore.Downloads.DISPLAY_NAME} LIKE ?"
         val latest = contentResolver.query(
             MediaStore.Downloads.EXTERNAL_CONTENT_URI,
             projection,
             selection,
-            arrayOf(BACKUP_NAME),
+            arrayOf("$BACKUP_PREFIX%"),
             "${MediaStore.Downloads.DATE_MODIFIED} DESC",
         ) ?: return null
         latest.use { c ->
@@ -142,7 +153,17 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    /** 全量重写备份（先删旧行再插入，避免多行并存与半写状态）。 */
+    /**
+     * 全量重写备份（先删自己的旧行再插入，避免多行并存与半写状态）。
+     *
+     * 2026-10-07 真机「每次必现备份失败」加固：
+     * - 同名 insert 返回空（DISPLAY_NAME 冲突 / 个别 ROM MediaProvider
+     *   拒绝）不再直接判死——带时间戳文件名重试一次（读取侧前缀匹配
+     *   取最新，两种命名都覆盖）；
+     * - 写入/发布分步 try/catch + Log.w（tag [TAG]）——此前双层吞错，
+     *   logcat 与 UI 都无从看到根因；
+     * - 发布成功后清理自己的其余旧行（时间戳回退产生的多行收敛回单文件）。
+     */
     private fun writeBackup(json: String): Boolean {
         if (Build.VERSION.SDK_INT < 29 || json.isEmpty()) return false
         val existing = queryBackupUri()
@@ -154,20 +175,76 @@ class MainActivity : FlutterActivity() {
                 // 直接另插新行，读取侧按修改时间取最新。
             }
         }
+        val uri = insertPending(BACKUP_NAME)
+            ?: insertPending("${BACKUP_PREFIX}-${System.currentTimeMillis()}.json")
+        if (uri == null) {
+            Log.w(TAG, "insert 两轮均返回空：DISPLAY_NAME 冲突或 MediaProvider 拒绝")
+            return false
+        }
+        try {
+            contentResolver.openOutputStream(uri)
+                ?.use { it.write(json.toByteArray(Charsets.UTF_8)) }
+                ?: run {
+                    Log.w(TAG, "openOutputStream 返回空")
+                    return false
+                }
+            val published = ContentValues().apply {
+                put(MediaStore.Downloads.IS_PENDING, 0)
+            }
+            contentResolver.update(uri, published, null, null)
+        } catch (e: Exception) {
+            Log.w(TAG, "备份写入/发布失败", e)
+            // 清理半写行，避免残留 pending 挡住下一轮
+            try {
+                contentResolver.delete(uri, null, null)
+            } catch (_: Exception) {
+            }
+            return false
+        }
+        cleanupStaleRows(keep = uri)
+        return true
+    }
+
+    /** 插入一条 pending 备份行；异常/拒绝返回 null（调用方回退重试）。 */
+    private fun insertPending(name: String): Uri? = try {
         val values = ContentValues().apply {
-            put(MediaStore.Downloads.DISPLAY_NAME, BACKUP_NAME)
+            put(MediaStore.Downloads.DISPLAY_NAME, name)
             put(MediaStore.Downloads.MIME_TYPE, "application/json")
             put(MediaStore.Downloads.RELATIVE_PATH, BACKUP_RELATIVE_DIR)
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
-        val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-            ?: return false
-        contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray(Charsets.UTF_8)) }
-            ?: return false
-        values.clear()
-        values.put(MediaStore.Downloads.IS_PENDING, 0)
-        contentResolver.update(uri, values, null, null)
-        return true
+        contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+    } catch (e: Exception) {
+        Log.w(TAG, "insert 异常（$name）", e)
+        null
+    }
+
+    /** 清理自己的其余备份行（时间戳回退名等），best-effort（非自己行静默跳过）。 */
+    private fun cleanupStaleRows(keep: Uri) {
+        try {
+            val cursor = contentResolver.query(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                arrayOf(MediaStore.Downloads._ID),
+                "${MediaStore.Downloads.DISPLAY_NAME} LIKE ?",
+                arrayOf("$BACKUP_PREFIX%"),
+                "${MediaStore.Downloads.DATE_MODIFIED} DESC",
+            ) ?: return
+            cursor.use { c ->
+                while (c.moveToNext()) {
+                    val uri = Uri.withAppendedPath(
+                        MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                        c.getLong(0).toString(),
+                    )
+                    if (uri == keep) continue
+                    try {
+                        contentResolver.delete(uri, null, null)
+                    } catch (_: SecurityException) {
+                        // 非本安装贡献的行：留给 SAF 兜底通道
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        }
     }
 
     /** 读回备份；不存在或不可读（owner 未复联）返回 null。 */

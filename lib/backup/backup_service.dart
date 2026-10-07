@@ -43,7 +43,11 @@ class BackupService {
   StreamSubscription<List<DownloadRecord>>? _sub;
   Timer? _debounce;
   bool _enabled = true;
-  bool _exporting = false;
+  Future<bool>? _inFlight;
+
+  /// 最近一次导出失败原因（设置页提示透出——「备份失败」双层吞错后
+  /// 无从定位，2026-10-07 真机排查起把根因带上 UI；null = 最近成功）。
+  String? lastExportError;
 
   /// 自动导出开关（设置页「卸载重装后保留历史」）。
   set enabled(bool value) => _enabled = value;
@@ -69,11 +73,29 @@ class BackupService {
   }
 
   /// 立即全量导出（防抖到期 / 设置页手动触发共用）。
-  Future<bool> exportNow() async {
-    if (_exporting) return false;
-    _exporting = true;
+  ///
+  /// 并发触发共享同一轮在途导出（2026-10-07 修复：手动点击撞上自动
+  /// 导出的在途窗口曾被直接判失败——启动恢复期的状态变更会频繁触发
+  /// 防抖导出，与手动点击的交叠窗口并非小概率）。
+  Future<bool> exportNow() {
+    final running = _inFlight;
+    if (running != null) return running;
+    final future = _doExport();
+    _inFlight = future;
+    return future.whenComplete(() {
+      if (identical(_inFlight, future)) _inFlight = null;
+    });
+  }
+
+  Future<bool> _doExport() async {
+    lastExportError = null;
     try {
-      if (!await store.isSupported) return false;
+      store.lastError = null;
+      if (!await store.isSupported) {
+        lastExportError =
+            '平台不支持（${store.lastError ?? "Android API < 29"}）';
+        return false;
+      }
       final rows = await repo.getAll();
       final payload = jsonEncode({
         'version': kBackupFormatVersion,
@@ -81,11 +103,14 @@ class BackupService {
         'records': [for (final r in rows) _recordToJson(r)],
       });
       final ok = await store.write(payload);
+      if (!ok) {
+        lastExportError =
+            store.lastError?.toString() ?? '备份写入返回失败（详见 logcat ClipVaultBackup）';
+      }
       return ok;
-    } catch (_) {
+    } catch (e) {
+      lastExportError = e.toString();
       return false; // 备份失败静默降级（增强能力，绝不影响主流程）
-    } finally {
-      _exporting = false;
     }
   }
 
