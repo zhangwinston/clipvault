@@ -8,7 +8,6 @@ library;
 
 import 'package:clipvault/core/proxy_auto.dart';
 import 'package:clipvault/settings/proxy_auto_provider.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class _NoopAutoSettings implements ProxyAutoSettings {
   const _NoopAutoSettings();
@@ -28,7 +27,10 @@ class _NoopAutoSettings implements ProxyAutoSettings {
 }
 
 /// 展开进 overrides：`...noopProxyAutoOverrides,`
-final List<Override> noopProxyAutoOverrides = <Override>[
+///
+/// 类型经 overrideWith 返回值推断（Riverpod 3 不再导出 Override 类型名，
+/// 显式标注无以指名，推断即得元素类型）。
+final noopProxyAutoOverrides = [
   proxyAutoCoordinatorProvider.overrideWith(
     (ref) => ProxyAutoCoordinator(
       settings: const _NoopAutoSettings(),
