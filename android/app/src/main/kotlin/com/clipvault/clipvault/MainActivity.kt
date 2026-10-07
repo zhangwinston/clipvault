@@ -154,64 +154,75 @@ class MainActivity : FlutterActivity() {
     }
 
     /**
-     * 全量重写备份（先删自己的旧行再插入，避免多行并存与半写状态）。
+     * 全量重写备份。返回失败原因描述（空串 = 成功，原因直通 UI）。
      *
-     * 返回失败原因描述（空串 = 成功）——2026-10-07 真机二轮排查：双层
-     * 吞错后 logcat 与 UI 均无从定位，改为原因直通 UI。
-     *
-     * insert 三级回退：①同名（常态单文件）→ ②时间戳名（DISPLAY_NAME
-     * 冲突/ROM 拒绝）→ ③Download 根目录（子目录路径个别 ROM 不接受）。
-     * 读取侧前缀匹配取最新，三种落位都能读到。
+     * 三级尝试（同名 → 时间戳名/子目录 → 时间戳名/根目录），任一环节
+     * 失败（含发布阶段）换名重试：
+     * 2026-10-07 真机根因实证——「Failed to build unique file
+     * /storage/emulated/0/Download/ClipVault/clipvault_backup.json」：
+     * 目录里存在前次安装遗留的孤儿备份（本安装不可见亦无权删除），
+     * 同名 insert 可成功（pending 暂存区），**发布（IS_PENDING=0）时
+     * 构建唯一文件失败**——失败发生在 insert 之后，仅靠 insert 回退
+     * 触发不到。毫秒时间戳名的最终路径不可能被占，第②级必成。
+     * 读取侧前缀匹配取最新，三种落位都能读到；发布成功后清理自己的
+     * 旧行收敛单文件（孤儿行无权删，静默留给 SAF 兜底通道）。
      */
     private fun writeBackup(json: String): String {
         if (Build.VERSION.SDK_INT < 29) return "SDK<29 无 MediaStore Downloads"
         if (json.isEmpty()) return "备份载荷为空"
-        val existing = queryBackupUri()
-        if (existing != null) {
-            try {
-                contentResolver.delete(existing, null, null)
-            } catch (_: SecurityException) {
-                // 旧安装遗留且 owner 未复联（签名变更等极端场景）：不删，
-                // 直接另插新行，读取侧按修改时间取最新。
+
+        val attempts = listOf(
+            BACKUP_NAME to true,
+            "${BACKUP_PREFIX}-${System.currentTimeMillis()}.json" to true,
+            "${BACKUP_PREFIX}-${System.currentTimeMillis()}.json" to false,
+        )
+        var lastReason = "未执行任何尝试"
+        for ((name, subDir) in attempts) {
+            val existing = queryBackupUri()
+            if (existing != null) {
+                try {
+                    contentResolver.delete(existing, null, null)
+                } catch (_: SecurityException) {
+                    // 旧安装遗留且 owner 未复联（签名变更等极端场景）：
+                    // 不删，换名另插新行，读取侧按修改时间取最新。
+                }
             }
-        }
-        val uri = insertPending(BACKUP_NAME)
-            ?: insertPending("${BACKUP_PREFIX}-${System.currentTimeMillis()}.json")
-            ?: insertPending(
-                "${BACKUP_PREFIX}-${System.currentTimeMillis()}.json",
-                subDir = false,
-            )
-        if (uri == null) {
-            val reason = "insert 三级均失败（同名/时间戳/根目录）"
-            Log.w(TAG, reason)
-            return reason
-        }
-        try {
-            val stream = contentResolver.openOutputStream(uri)
-            if (stream == null) {
-                Log.w(TAG, "openOutputStream 返回空")
+            val uri = insertPending(name, subDir)
+            if (uri == null) {
+                lastReason = "insert 失败（$name）"
+                Log.w(TAG, "$lastReason subDir=$subDir")
+                continue
+            }
+            try {
+                val stream = contentResolver.openOutputStream(uri)
+                if (stream == null) {
+                    lastReason = "openOutputStream 返回空"
+                    Log.w(TAG, lastReason)
+                    try {
+                        contentResolver.delete(uri, null, null)
+                    } catch (_: Exception) {
+                    }
+                    continue
+                }
+                stream.use { it.write(json.toByteArray(Charsets.UTF_8)) }
+                val published = ContentValues().apply {
+                    put(MediaStore.Downloads.IS_PENDING, 0)
+                }
+                contentResolver.update(uri, published, null, null)
+                cleanupStaleRows(keep = uri)
+                return "" // 成功
+            } catch (e: Exception) {
+                // 含发布阶段「Failed to build unique file」（孤儿占位）：
+                // 清理半写 pending 行后换名重试
+                lastReason = "写入/发布异常: ${e.message}"
+                Log.w(TAG, "写入/发布失败（$name subDir=$subDir）: ${e.message}")
                 try {
                     contentResolver.delete(uri, null, null)
                 } catch (_: Exception) {
                 }
-                return "openOutputStream 返回空"
             }
-            stream.use { it.write(json.toByteArray(Charsets.UTF_8)) }
-            val published = ContentValues().apply {
-                put(MediaStore.Downloads.IS_PENDING, 0)
-            }
-            contentResolver.update(uri, published, null, null)
-        } catch (e: Exception) {
-            Log.w(TAG, "备份写入/发布失败", e)
-            // 清理半写行，避免残留 pending 挡住下一轮
-            try {
-                contentResolver.delete(uri, null, null)
-            } catch (_: Exception) {
-            }
-            return "写入/发布异常: ${e.message}"
         }
-        cleanupStaleRows(keep = uri)
-        return ""
+        return lastReason
     }
 
     /** 插入一条 pending 备份行；异常/拒绝返回 null（调用方回退重试）。 */
