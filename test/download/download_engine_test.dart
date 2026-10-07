@@ -771,14 +771,28 @@ void main() {
       await h.start(onDirectFailure: () => hookCalls++);
       addTearDown(() => h.teardown());
 
+      var rateLimited = true;
       h.server.routes['/rl.mp4'] = (req) async {
-        await serveStatus(req, 429);
+        if (rateLimited) {
+          await serveStatus(req, 429);
+        } else {
+          await serveBody(req, makeBody(4 * 1024));
+        }
       };
+      // 阻塞冷却 30s 的假延迟以冻结 paused 状态供观测（虚拟时钟即时推进
+      // 冷却等待，否则 paused 窗口无真实时长可采样——同 429 全队列冷却用例）
+      h.clock.gate = Completer<void>();
       final task = newTask(h.server.urlFor('/rl.mp4'));
       h.engine.enqueue(task);
       await pumpUntil(
           () => h.engine.task(task.id)?.status == DownloadStatus.paused);
       expect(hookCalls, 0); // 服务器可达，非直连失败
+
+      // 释放冷却并让服务器恢复，任务完成收敛（无残留热循环）
+      rateLimited = false;
+      h.clock.gate!.complete();
+      await pumpUntil(
+          () => h.engine.task(task.id)?.status == DownloadStatus.completed);
     });
   });
 

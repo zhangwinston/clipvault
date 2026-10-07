@@ -70,6 +70,15 @@ class Holder<T> {
   T value;
 }
 
+/// 冲刷异步事件送达：广播流的监听交付不保证在协调器 API 的 await 返回
+/// 前完成（事件 add 在内部链路完成之前，交付微任务的调度次序与 API
+/// 返回链路无契约），断言事件前列先冲刷。
+Future<void> flushEvents() async {
+  for (var i = 0; i < 5; i++) {
+    await Future<void>.delayed(Duration.zero);
+  }
+}
+
 /// 脚本化探测：记录调用序列 + 可编程结果（默认全 false；FutureOr 签名
 /// 兼容同步/异步脚本——异步用于单飞与预算用例的时序控制）。
 class ProbeScript {
@@ -314,6 +323,7 @@ void main() {
       await c.preflight();
       expect(settings.disableCount, 1);
       expect(settings.proxyEnabled, isFalse);
+      await flushEvents();
       expect(events, hasLength(1));
       expect(events.single, isA<ProxyAutoDisabledEvent>());
     });
@@ -477,6 +487,7 @@ void main() {
 
       expect(await c.onDirectFailure(), isTrue);
       expect(settings.enabledAddresses, <String>[proxy.address]);
+      await flushEvents();
       expect(events.single, isA<ProxyAutoEnabledEvent>());
       expect(proxy.connections, greaterThanOrEqualTo(1));
     });

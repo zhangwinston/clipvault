@@ -21,6 +21,8 @@ import 'package:clipvault/ui/common/parse_skeleton.dart';
 import 'package:clipvault/ui/downloads/task_tile.dart';
 import 'package:clipvault/parse/parser_provider.dart' show tweetParserProvider;
 
+import 'proxy_auto_stub.dart';
+
 class _NullReader implements ClipboardReader {
   @override
   Future<String?> readText() async => null;
@@ -90,6 +92,9 @@ Widget _gateApp({
       shareReceiverProvider.overrideWithValue(
         shareReceiver ?? NoopShareReceiver(),
       ),
+      // 零操作代理协调器：真实协调器在 FakeAsync 环境会因 connectivity
+      // 通道无平台实现卡死解析链（§6.9）
+      ...noopProxyAutoOverrides,
       downloadCommandsProvider.overrideWithValue(_NullCommands()),
       downloadsWatchProvider.overrideWith((ref) => const Stream.empty()),
     ],

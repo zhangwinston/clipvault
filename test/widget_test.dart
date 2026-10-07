@@ -16,6 +16,8 @@ import 'package:clipvault/sharing/share_receiver.dart';
 import 'package:clipvault/ui/downloads/task_tile.dart';
 import 'package:clipvault/parse/parser_provider.dart' show tweetParserProvider;
 
+import 'ui/proxy_auto_stub.dart';
+
 class _NullReader implements ClipboardReader {
   @override
   Future<String?> readText() async => null;
@@ -97,6 +99,9 @@ void main() {
           tweetParserProvider.overrideWith((ref) => _NullParser()),
           clipboardReaderProvider.overrideWithValue(_NullReader()),
           shareReceiverProvider.overrideWithValue(NoopShareReceiver()),
+          // 零操作代理协调器：真实协调器在 FakeAsync 环境会因 connectivity
+          // 通道无平台实现卡死解析链（§6.9）
+          ...noopProxyAutoOverrides,
           downloadCommandsProvider.overrideWithValue(_NullCommands()),
           downloadsWatchProvider.overrideWith((ref) => const Stream.empty()),
         ],
@@ -146,6 +151,7 @@ void main() {
           tweetParserProvider.overrideWith((ref) => _OkParser()),
           clipboardReaderProvider.overrideWithValue(_NullReader()),
           shareReceiverProvider.overrideWithValue(NoopShareReceiver()),
+          ...noopProxyAutoOverrides,
           downloadCommandsProvider.overrideWithValue(_NullCommands()),
           downloadsWatchProvider.overrideWith((ref) => const Stream.empty()),
         ],
