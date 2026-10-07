@@ -68,9 +68,16 @@ class AndroidMediaStoreBackupStore implements BackupStore {
   Future<bool> write(String json) async {
     lastError = null;
     try {
-      final ok = await _channel.invokeMethod<bool>('writeBackup', {'json': json}) ?? false;
-      if (!ok) lastError = '原生写入返回失败（详见 logcat ClipVaultBackup）';
-      return ok;
+      // 原生协议（2026-10-07 二轮）：返回失败原因描述，空串 = 成功——
+      // 原因直通 UI，不再依赖 logcat 定位
+      final detail =
+          await _channel.invokeMethod<String>('writeBackup', {'json': json}) ??
+              '通道返回空';
+      if (detail.isNotEmpty) {
+        lastError = detail;
+        return false;
+      }
+      return true;
     } catch (e) {
       lastError = e;
       return false;

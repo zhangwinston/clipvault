@@ -156,16 +156,16 @@ class MainActivity : FlutterActivity() {
     /**
      * 全量重写备份（先删自己的旧行再插入，避免多行并存与半写状态）。
      *
-     * 2026-10-07 真机「每次必现备份失败」加固：
-     * - 同名 insert 返回空（DISPLAY_NAME 冲突 / 个别 ROM MediaProvider
-     *   拒绝）不再直接判死——带时间戳文件名重试一次（读取侧前缀匹配
-     *   取最新，两种命名都覆盖）；
-     * - 写入/发布分步 try/catch + Log.w（tag [TAG]）——此前双层吞错，
-     *   logcat 与 UI 都无从看到根因；
-     * - 发布成功后清理自己的其余旧行（时间戳回退产生的多行收敛回单文件）。
+     * 返回失败原因描述（空串 = 成功）——2026-10-07 真机二轮排查：双层
+     * 吞错后 logcat 与 UI 均无从定位，改为原因直通 UI。
+     *
+     * insert 三级回退：①同名（常态单文件）→ ②时间戳名（DISPLAY_NAME
+     * 冲突/ROM 拒绝）→ ③Download 根目录（子目录路径个别 ROM 不接受）。
+     * 读取侧前缀匹配取最新，三种落位都能读到。
      */
-    private fun writeBackup(json: String): Boolean {
-        if (Build.VERSION.SDK_INT < 29 || json.isEmpty()) return false
+    private fun writeBackup(json: String): String {
+        if (Build.VERSION.SDK_INT < 29) return "SDK<29 无 MediaStore Downloads"
+        if (json.isEmpty()) return "备份载荷为空"
         val existing = queryBackupUri()
         if (existing != null) {
             try {
@@ -177,17 +177,26 @@ class MainActivity : FlutterActivity() {
         }
         val uri = insertPending(BACKUP_NAME)
             ?: insertPending("${BACKUP_PREFIX}-${System.currentTimeMillis()}.json")
+            ?: insertPending(
+                "${BACKUP_PREFIX}-${System.currentTimeMillis()}.json",
+                subDir = false,
+            )
         if (uri == null) {
-            Log.w(TAG, "insert 两轮均返回空：DISPLAY_NAME 冲突或 MediaProvider 拒绝")
-            return false
+            val reason = "insert 三级均失败（同名/时间戳/根目录）"
+            Log.w(TAG, reason)
+            return reason
         }
         try {
-            contentResolver.openOutputStream(uri)
-                ?.use { it.write(json.toByteArray(Charsets.UTF_8)) }
-                ?: run {
-                    Log.w(TAG, "openOutputStream 返回空")
-                    return false
+            val stream = contentResolver.openOutputStream(uri)
+            if (stream == null) {
+                Log.w(TAG, "openOutputStream 返回空")
+                try {
+                    contentResolver.delete(uri, null, null)
+                } catch (_: Exception) {
                 }
+                return "openOutputStream 返回空"
+            }
+            stream.use { it.write(json.toByteArray(Charsets.UTF_8)) }
             val published = ContentValues().apply {
                 put(MediaStore.Downloads.IS_PENDING, 0)
             }
@@ -199,23 +208,26 @@ class MainActivity : FlutterActivity() {
                 contentResolver.delete(uri, null, null)
             } catch (_: Exception) {
             }
-            return false
+            return "写入/发布异常: ${e.message}"
         }
         cleanupStaleRows(keep = uri)
-        return true
+        return ""
     }
 
     /** 插入一条 pending 备份行；异常/拒绝返回 null（调用方回退重试）。 */
-    private fun insertPending(name: String): Uri? = try {
+    private fun insertPending(name: String, subDir: Boolean = true): Uri? = try {
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, name)
             put(MediaStore.Downloads.MIME_TYPE, "application/json")
-            put(MediaStore.Downloads.RELATIVE_PATH, BACKUP_RELATIVE_DIR)
+            put(
+                MediaStore.Downloads.RELATIVE_PATH,
+                if (subDir) BACKUP_RELATIVE_DIR else Environment.DIRECTORY_DOWNLOADS,
+            )
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
         contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
     } catch (e: Exception) {
-        Log.w(TAG, "insert 异常（$name）", e)
+        Log.w(TAG, "insert 异常（$name subDir=$subDir）: ${e.message}")
         null
     }
 
