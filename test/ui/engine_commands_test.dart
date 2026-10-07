@@ -332,6 +332,109 @@ void main() {
     expect(task?.isSettled, isTrue);
   });
 
+  group('代理预检挂点（§6.9 自动调节）', () {
+    test('enqueue：预检先于建行执行', () async {
+      final engine = newEngine(_notFound);
+      var rowsAtPreflight = -1;
+      final commands = EngineDownloadCommands(
+        engine,
+        repo,
+        proxyPreflight: () async {
+          // 预检发生在建行之前（此时仓库尚无行）
+          rowsAtPreflight = (await repo.getAll()).length;
+        },
+      );
+      addTearDown(commands.dispose);
+      addTearDown(() => engine.dispose());
+
+      final result = await commands.enqueue(
+        tweetId: '1790637656616943991',
+        variant: _variant(2176000),
+        tweetJson: '{"tweetId":"1790637656616943991"}',
+      );
+
+      expect(result, DownloadEnqueueResult.enqueued);
+      expect(rowsAtPreflight, 0);
+      expect(await repo.getAll(), hasLength(1));
+    });
+
+    test('Wi-Fi 恢复：先预检再补交挂起任务', () async {
+      final engine = newEngine(_notFound);
+      final connectivity = _FakeConnectivity(false);
+      var preflightCalls = 0;
+      var engineBusyAtLastPreflight = false;
+      final commands = EngineDownloadCommands(
+        engine,
+        repo,
+        wifiOnlyEnabled: () => true,
+        connectivity: connectivity,
+        proxyPreflight: () async {
+          preflightCalls++;
+          engineBusyAtLastPreflight =
+              engine.tasks.any((t) => !t.isSettled);
+        },
+      );
+      addTearDown(commands.dispose);
+      addTearDown(connectivity.dispose);
+      addTearDown(() => engine.dispose());
+
+      await commands.enqueue(
+        tweetId: '1790637656616943991',
+        variant: _variant(2176000),
+        tweetJson: '{"tweetId":"1790637656616943991"}',
+      );
+      expect(preflightCalls, 1); // enqueue 顶部预检
+      final rowId = (await repo.getAll()).single.id;
+
+      connectivity.onWifi = true;
+      connectivity.events.add(true);
+      await _pumpEventQueue();
+
+      expect(preflightCalls, 2); // Wi-Fi 恢复路径也预检
+      expect(engineBusyAtLastPreflight, isFalse); // 且预检先于补交（引擎尚无任务）
+      expect(
+        engine.task(EngineDownloadCommands.engineIdOf(rowId)),
+        isNotNull,
+      ); // 补交最终完成
+    });
+
+    test('启动恢复（restoreRecords）不预检：批量入队防探测风暴', () async {
+      final engine = newEngine(_notFound);
+      final connectivity = _FakeConnectivity(true);
+      var preflightCalls = 0;
+      final commands = EngineDownloadCommands(
+        engine,
+        repo,
+        wifiOnlyEnabled: () => true,
+        connectivity: connectivity,
+        proxyPreflight: () async {
+          preflightCalls++;
+        },
+      );
+      addTearDown(commands.dispose);
+      addTearDown(connectivity.dispose);
+      addTearDown(() => engine.dispose());
+
+      final row = await repo.createTask(DownloadRecordsCompanion.insert(
+        tweetId: '1790637656616943995',
+        variantUrl: 'https://video.twimg.com/x.mp4',
+        contentType: 'mp4',
+        bitrate: 2176000,
+        qualityLabel: '720p (HD)',
+        status: DownloadStatus.queued.name,
+        tweetJson: '{"tweetId":"1790637656616943995"}',
+      ));
+
+      await commands.restoreRecords([row]);
+      for (var i = 0; i < 10; i++) {
+        await _pumpEventQueue();
+      }
+      expect(preflightCalls, 0); // 恢复路径不预检（引擎失败兜底覆盖）
+      final task = engine.task(EngineDownloadCommands.engineIdOf(row.id));
+      expect(task, isNotNull); // 恢复本身不受影响
+    });
+  });
+
   test('删除记录（用户反馈 2026-09-30）：仅删行与断点残片，视频文件保留', () async {
     final engine = newEngine(_hang);
     final commands = EngineDownloadCommands(engine, repo);

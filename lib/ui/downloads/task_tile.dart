@@ -31,6 +31,7 @@ import 'package:clipvault/ui/common/retry_image.dart';
 import 'package:clipvault/parse/models.dart';
 import 'package:clipvault/parse/parser_provider.dart'
     show refreshVariantUrl, tweetParserProvider;
+import 'package:clipvault/settings/proxy_auto_provider.dart';
 import 'package:clipvault/settings/settings_controller.dart';
 import 'package:clipvault/ui/common/error_views.dart';
 import 'package:clipvault/ui/common/preview_card.dart' show PreviewCard;
@@ -238,11 +239,14 @@ class EngineDownloadCommands implements DownloadCommands {
     this._repo, {
     bool Function()? wifiOnlyEnabled,
     ConnectivityChecker? connectivity,
+    Future<void> Function()? proxyPreflight,
   })  : _wifiOnlyEnabled = wifiOnlyEnabled ?? _wifiOffByDefault,
-        _connectivity = connectivity ?? const _NoopConnectivityChecker() {
-    // Wi-Fi 恢复 → 补交挂起任务（订阅随 dispose 取消）
+        _connectivity = connectivity ?? const _NoopConnectivityChecker(),
+        _proxyPreflight = proxyPreflight {
+    // Wi-Fi 恢复 → 先代理预检再补交挂起任务（订阅随 dispose 取消）：
+    // 蜂窝开代理回 Wi-Fi 的场景，补交的下载直接走预检定好的路径。
     _wifiSub = _connectivity.onWifiChanged.listen((onWifi) {
-      if (onWifi) unawaited(_flushHeld());
+      if (onWifi) unawaited(_preflightThenFlush());
     });
   }
 
@@ -253,6 +257,10 @@ class EngineDownloadCommands implements DownloadCommands {
   final bool Function() _wifiOnlyEnabled;
   final ConnectivityChecker _connectivity;
 
+  /// 代理预检注入（§6.9 自动调节，生产接协调器 preflight；测试注入
+  /// recorder 断言挂点）。null = 无预检（行为等同改动前）。
+  final Future<void> Function()? _proxyPreflight;
+
   /// 因仅 Wi-Fi 偏好挂起、尚未交引擎的行主键集合。
   final Set<int> _heldBack = <int>{};
   StreamSubscription<bool>? _wifiSub;
@@ -261,12 +269,23 @@ class EngineDownloadCommands implements DownloadCommands {
   /// 行主键 → 引擎任务 id
   static String engineIdOf(int rowId) => 'rec_$rowId';
 
+  /// 预检 + 补交挂起任务（Wi-Fi 恢复路径）：预检等待由协调器内预算封顶
+  ///（默认 3s，TTL 缓存后近零成本），后续补交即走正确代理路径。
+  Future<void> _preflightThenFlush() async {
+    await _proxyPreflight?.call();
+    await _flushHeld();
+  }
+
   @override
   Future<DownloadEnqueueResult> enqueue({
     required String tweetId,
     required VideoVariant variant,
     required String tweetJson,
   }) async {
+    // 自动代理预检（§6.9：Wi-Fi 直连可用→自动关 / 直连不可用→预探测
+    // 启用）：放最前——随后补交的挂起任务与本次入队同批走正确路径。
+    // await 但协调器内预算封顶（≤3s），TTL 缓存后近零成本。
+    await _proxyPreflight?.call();
     // 入队前先补交挂起任务（网络可能已恢复但连接流尚未投递）
     await _flushHeld();
     // 业务键去重（第一道防线）：引擎内已有同 (tweetId, bitrate) 未终结任务
@@ -615,6 +634,11 @@ final Provider<DownloadEngine> downloadEngineProvider = Provider<DownloadEngine>
         return null; // 端点仓库加载失败等：按 urlExpired 收敛，重试再试
       }
     },
+    // 直连失败兜底（§6.9 自动代理调节）：引擎网络类异常且当前 DIRECT 时
+    // 触发探测；协调器内部单飞+冷却去重。unawaited——退避节奏不受探测
+    // 耗时影响，探测完成后 findProxy 回调实时读缓存即切换。
+    onDirectFailure: () => unawaited(
+        ref.read(proxyAutoCoordinatorProvider).onDirectFailure(source: 'download')),
   );
   // 并发数偏好接线（§5.4 settings.concurrency → engine.concurrency）：
   // 先同步应用已加载值（引擎首建晚于设置加载的场景），
@@ -664,6 +688,9 @@ final Provider<DownloadCommands> downloadCommandsProvider =
     wifiOnlyEnabled: () =>
         ref.read(settingsControllerProvider).value?.wifiOnly ?? false,
     connectivity: ref.watch(connectivityCheckerProvider),
+    // 代理预检（§6.9 自动调节）：enqueue 顶部与 Wi-Fi 恢复补交前调用
+    proxyPreflight: () =>
+        ref.read(proxyAutoCoordinatorProvider).preflight(),
   );
   ref.onDispose(commands.dispose);
   return commands;

@@ -138,4 +138,37 @@ void main() {
     expect(s.proxyAddress, kDefaultProxyAddress);
     expect(SystemProxy.proxySetting, 'PROXY 127.0.0.1:2080');
   });
+
+  group('自动代理调节总开关（proxyAuto）', () {
+    test('全新安装默认开启；不触碰代理解析器', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final s = await pump(container);
+      expect(s.proxyAuto, isTrue);
+      // 总开关只调节自动行为，不改变当前代理注入状态
+      expect(SystemProxy.proxySetting, 'DIRECT');
+    });
+
+    test('预置 false 读取关闭；setProxyAuto 落盘且不惊动代理注入', () async {
+      SharedPreferences.setMockInitialValues({
+        kPrefSettingsProxyAuto: false,
+      });
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(settingsControllerProvider.notifier);
+      final s0 = await pump(container);
+      expect(s0.proxyAuto, isFalse);
+
+      await notifier.setProxyEnabled(true);
+      expect(SystemProxy.proxySetting, 'PROXY 127.0.0.1:2080');
+
+      await notifier.setProxyAuto(true);
+      final s1 = container.read(settingsControllerProvider).value!;
+      expect(s1.proxyAuto, isTrue);
+      // 开关切换不影响已注入的手动代理
+      expect(SystemProxy.proxySetting, 'PROXY 127.0.0.1:2080');
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool(kPrefSettingsProxyAuto), isTrue);
+    });
+  });
 }

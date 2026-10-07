@@ -24,6 +24,7 @@ const String kPrefSettingsWifiOnly = 'settings.wifiOnly';
 const String kPrefSettingsBackupHistory = 'settings.backupHistory';
 const String kPrefSettingsProxyAddress = 'settings.proxyAddress';
 const String kPrefSettingsProxyEnabled = 'settings.proxyEnabled';
+const String kPrefSettingsProxyAuto = 'settings.proxyAuto';
 const String kPrefSettingsAutoCleanDays = 'settings.autoCleanDays';
 const String kPrefSettingsAutoCleanMaxBytes = 'settings.autoCleanMaxBytes';
 
@@ -46,6 +47,7 @@ class SettingsState {
     required this.backupHistory,
     required this.proxyAddress,
     required this.proxyEnabled,
+    required this.proxyAuto,
     required this.autoCleanDays,
     required this.autoCleanMaxBytes,
     this.disclaimerAcceptedAt,
@@ -70,6 +72,11 @@ class SettingsState {
   /// 代理/直连），地址保留——重开免重填。
   final bool proxyEnabled;
 
+  /// 自动代理调节总开关（2026-10-07 增补，DESIGN §6.9）：方向 A（直连
+  /// 失败→探测本地代理→自动启用）与方向 B（Wi-Fi 预检直连可用→自动
+  /// 关闭）的仲裁键，默认开启。协调器见 core/proxy_auto.dart。
+  final bool proxyAuto;
+
   /// 开关开启时的生效地址：空地址回落 [kDefaultProxyAddress]。
   String get effectiveProxyAddress =>
       proxyAddress.trim().isEmpty ? kDefaultProxyAddress : proxyAddress.trim();
@@ -89,6 +96,7 @@ class SettingsState {
     bool? backupHistory,
     String? proxyAddress,
     bool? proxyEnabled,
+    bool? proxyAuto,
     int? autoCleanDays,
     int? autoCleanMaxBytes,
   }) {
@@ -102,6 +110,7 @@ class SettingsState {
       backupHistory: backupHistory ?? this.backupHistory,
       proxyAddress: proxyAddress ?? this.proxyAddress,
       proxyEnabled: proxyEnabled ?? this.proxyEnabled,
+      proxyAuto: proxyAuto ?? this.proxyAuto,
       autoCleanDays: autoCleanDays ?? this.autoCleanDays,
       autoCleanMaxBytes: autoCleanMaxBytes ?? this.autoCleanMaxBytes,
     );
@@ -178,6 +187,10 @@ class SettingsController extends AsyncNotifier<SettingsState> {
       backupHistory: prefs.getBool(kPrefSettingsBackupHistory) ?? true,
       proxyAddress: savedAddress ?? kDefaultProxyAddress,
       proxyEnabled: proxyEnabled,
+      // 全新独立开关无存量迁移歧义：读时默认即可，不写回（对齐 wifiOnly
+      // 模式；proxyEnabled 当年写回是因其存量迁移有"空=跟随系统"旧语义
+      // 需固化判定防翻转）
+      proxyAuto: prefs.getBool(kPrefSettingsProxyAuto) ?? true,
       autoCleanDays: prefs.getInt(kPrefSettingsAutoCleanDays) ?? 3,
       autoCleanMaxBytes: prefs.getInt(kPrefSettingsAutoCleanMaxBytes) ?? 2 * 1024 * 1024 * 1024,
     );
@@ -287,6 +300,16 @@ class SettingsController extends AsyncNotifier<SettingsState> {
   void _applyProxy(SettingsState s) {
     SystemProxy.setManualAddress(
         s.proxyEnabled ? s.effectiveProxyAddress : null);
+  }
+
+  /// 自动代理调节总开关（§6.9 双向自动调节）：独立单键、不触碰代理
+  /// 字段，无读改写交错面，不需 [_serialized]（对比：代理两键 setter
+  /// 跨异步点必须串行）。关闭即冻结当前手动开关状态。
+  Future<void> setProxyAuto(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(kPrefSettingsProxyAuto, value);
+    final cur = _current;
+    if (cur != null) state = AsyncData(cur.copyWith(proxyAuto: value));
   }
 
   /// 缓存占用（字节）

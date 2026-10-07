@@ -404,6 +404,16 @@ abstract final class AppStrings {
       '关闭开关仅暂停使用，地址保留，重开免重填；关闭后回落系统代理或直连';
   static const String toastProxyInvalid = '格式应为 host:port（端口 1-65535）';
 
+  // ---- 自动代理调节（§6.9 双向自动调节，2026-10-07 增补）----
+  /// 总开关行标题 + 副标题。
+  static const String settingsProxyAuto = '自动调节代理';
+  static const String settingsProxyAutoHint =
+      '直连不可用时自动改走本地代理；Wi-Fi 下直连恢复时自动改回';
+
+  /// 自动切换 SnackBar（前缀拼接地址，对齐 settingsProxyActiveNow 模式）。
+  static const String toastProxyAutoEnabledPrefix = '直连不可用，已自动启用代理：';
+  static const String toastProxyAutoDisabled = 'Wi-Fi 下直连可用，已自动关闭代理';
+
 
   // ---- 网络诊断（§6.9 配套：分层定位代理/TUN 环境失败环节）----
   static const String actionNetDiag = '网络诊断';

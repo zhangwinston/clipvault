@@ -20,6 +20,8 @@ import 'package:clipvault/core/error.dart';
 import 'package:clipvault/parse/endpoint_config.dart';
 import 'package:clipvault/parse/models.dart';
 import 'package:clipvault/parse/parser_provider.dart';
+import 'package:clipvault/core/proxy_auto.dart';
+import 'package:clipvault/settings/proxy_auto_provider.dart';
 import 'package:clipvault/settings/settings_controller.dart';
 import 'package:clipvault/sharing/share_receiver.dart';
 import 'package:clipvault/ui/common/parse_skeleton.dart';
@@ -97,6 +99,25 @@ class FakeClipboardReader implements ClipboardReader {
       _queue.isNotEmpty ? _queue.removeAt(0) : null;
 }
 
+/// 零操作自动代理设置（autoEnabled=false → preflight/onDirectFailure 秒回）：
+/// widget 测试隔离真实探测/网络与本机代理端口（§6.9）。
+class _NoopAutoSettings implements ProxyAutoSettings {
+  const _NoopAutoSettings();
+
+  @override
+  ProxyAutoSettingsView read() => const ProxyAutoSettingsView(
+        autoEnabled: false,
+        proxyEnabled: false,
+        effectiveProxyAddress: '127.0.0.1:2080',
+      );
+
+  @override
+  Future<void> autoEnable(String address) async {}
+
+  @override
+  Future<void> autoDisable() async {}
+}
+
 /// 可编程入队结果：默认成功，duplicate 场景改 [enqueueResult]
 class FakeDownloadCommands implements DownloadCommands {
   FakeDownloadCommands({this.enqueueResult = DownloadEnqueueResult.enqueued});
@@ -171,6 +192,14 @@ Future<void> _pumpHome(
         ),
         clipboardReaderProvider.overrideWithValue(reader),
         shareReceiverProvider.overrideWithValue(NoopShareReceiver()),
+        // 自动代理调节零操作 stub：解析入口的 preflight/失败兜底秒回，
+        // 不触真实探测与本机代理端口
+        proxyAutoCoordinatorProvider.overrideWith(
+          (ref) => ProxyAutoCoordinator(
+            settings: const _NoopAutoSettings(),
+            now: DateTime.now,
+          ),
+        ),
         downloadCommandsProvider.overrideWithValue(commands),
         downloadsWatchProvider.overrideWith((ref) => const Stream.empty()),
         ...extraOverrides.cast(),

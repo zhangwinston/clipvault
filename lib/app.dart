@@ -11,7 +11,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:clipvault/core/app_strings.dart';
+import 'package:clipvault/core/proxy_auto.dart' show ProxyAutoEvent;
 import 'package:clipvault/download/download_task.dart' as dt;
+import 'package:clipvault/settings/proxy_auto_provider.dart'
+    show proxyAutoCoordinatorProvider;
 import 'package:clipvault/settings/settings_controller.dart';
 import 'package:clipvault/ui/common/brand.dart';
 import 'package:clipvault/ui/common/disclaimer_dialog.dart';
@@ -353,6 +356,7 @@ class HomeShell extends ConsumerStatefulWidget {
 
 class _HomeShellState extends ConsumerState<HomeShell> {
   StreamSubscription<dynamic>? _taskSub;
+  StreamSubscription<ProxyAutoEvent>? _proxyAutoSub;
 
   /// 已通知过完成的任务 id（重试后重新置 false 才会再次通知）。
   final Map<String, bool> _notifiedCompleted = <String, bool>{};
@@ -362,6 +366,23 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     super.initState();
     final engine = ref.read(downloadEngineProvider);
     _taskSub = engine.taskEvents.listen(_onTaskEvent);
+    // 自动代理切换通知（§6.9 双向自动调节）：无论用户在哪个 Tab，切换
+    // 发生即告知——代理路径的变更用户必须可感知
+    _proxyAutoSub = ref
+        .read(proxyAutoCoordinatorProvider)
+        .events
+        .listen(_onProxyAutoEvent);
+  }
+
+  void _onProxyAutoEvent(ProxyAutoEvent event) {
+    if (!mounted) return;
+    final msg = switch (event) {
+      ProxyAutoEnabledEvent e => AppStrings.toastProxyAutoEnabledPrefix + e.address,
+      ProxyAutoDisabledEvent _ => AppStrings.toastProxyAutoDisabled,
+    };
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(msg)));
   }
 
   void _onTaskEvent(dt.DownloadTask task) {
@@ -395,6 +416,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   @override
   void dispose() {
     _taskSub?.cancel();
+    _proxyAutoSub?.cancel();
     super.dispose();
   }
 

@@ -124,4 +124,43 @@ void main() {
     await tester.pump();
     expect(find.text(AppStrings.settingsProxyEditTitle), findsNothing);
   });
+
+  testWidgets('自动调节代理开关：默认开，切换落盘', (tester) async {
+    await _pumpSettings(tester);
+    await _scrollToProxyRow(tester);
+    // 自动调节行紧随代理行之下，确保完整入视口再交互
+    await tester.ensureVisible(find.text(AppStrings.settingsProxyAuto));
+    await tester.pump();
+
+    final autoTile = find
+        .ancestor(
+          of: find.text(AppStrings.settingsProxyAuto),
+          matching: find.byType(ListTile),
+        )
+        .first;
+    final sw = tester.widget<Switch>(
+        find.descendant(of: autoTile, matching: find.byType(Switch)));
+    expect(sw.value, isTrue); // 默认开启
+
+    // 关闭：prefs 落盘
+    await tester.tap(
+        find.descendant(of: autoTile, matching: find.byType(Switch)));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getBool('settings.proxyAuto'), isFalse);
+    // 代理开关本体不受影响（仍开启）
+    final proxyTile = find
+        .ancestor(
+          of: find.text(AppStrings.settingsProxyToggle),
+          matching: find.byType(ListTile),
+        )
+        .first;
+    expect(
+      tester.widget<Switch>(find
+          .descendant(of: proxyTile, matching: find.byType(Switch)))
+          .value,
+      isTrue,
+    );
+  });
 }

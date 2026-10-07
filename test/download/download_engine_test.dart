@@ -15,6 +15,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:clipvault/core/app_http.dart' show SystemProxy;
 import 'package:clipvault/download/download_engine.dart';
 import 'package:clipvault/download/download_task.dart';
 import 'package:clipvault/download/gallery_saver.dart';
@@ -379,6 +380,7 @@ class Harness {
     Duration progressThrottle = const Duration(milliseconds: 500),
     Duration stallTimeout = const Duration(seconds: 60),
     UrlRefresher? urlRefresher,
+    DirectFailureHook? onDirectFailure,
     int concurrency = 2,
   }) async {
     DownloadTask.resetIdSequenceForTest();
@@ -393,6 +395,7 @@ class Harness {
       stallTimeout: stallTimeout,
       backoff: BackoffPolicy(random: ZeroRandom()),
       urlRefresher: urlRefresher,
+      onDirectFailure: onDirectFailure,
       now: clock.now,
       delay: clock.delay,
     );
@@ -720,6 +723,63 @@ void main() {
     t = h.engine.task(task.id)!;
     expect(t.autoRetries, 0);
     expect(await File(t.filePath!).readAsBytes(), body);
+  });
+
+  group('直连失败兜底钩子（§6.9 自动代理调节）', () {
+    setUp(SystemProxy.debugReset);
+    tearDown(SystemProxy.debugReset);
+
+    test('网络类异常进退避时触发；耗尽转 failed 前也触发', () async {
+      var hookCalls = 0;
+      final h = Harness();
+      await h.start(onDirectFailure: () => hookCalls++);
+      addTearDown(() => h.teardown());
+
+      // 未监听端口 → SocketException（网络类）→ 退避 3 次耗尽 failed
+      final task = newTask('http://127.0.0.1:1/unreachable.mp4');
+      h.engine.enqueue(task);
+      await pumpUntil(
+          () => h.engine.task(task.id)?.status == DownloadStatus.failed);
+
+      // 4 次尝试（首次 + 3 次重试）全部走 catch-all，每次都触发：
+      // 引擎只负责上报（协调器侧单飞+冷却去重是上层职责）
+      expect(hookCalls, 4);
+      expect(h.clock.delays, hasLength(3));
+      expect(h.engine.task(task.id)!.failureKind,
+          DownloadFailureKind.retryable);
+    });
+
+    test('代理已生效（非 DIRECT）时兜底不触发', () async {
+      var hookCalls = 0;
+      // 手动代理注入后 proxySetting 非 DIRECT：请求经 127.0.0.1:2080
+      //（未监听）连接拒绝，同样退避耗尽，但与直连无关——不应触发探测
+      SystemProxy.setManualAddress('127.0.0.1:2080');
+      final h = Harness();
+      await h.start(onDirectFailure: () => hookCalls++);
+      addTearDown(() => h.teardown());
+
+      final task = newTask('http://127.0.0.1:1/unreachable.mp4');
+      h.engine.enqueue(task);
+      await pumpUntil(
+          () => h.engine.task(task.id)?.status == DownloadStatus.failed);
+      expect(hookCalls, 0);
+    });
+
+    test('429 冷却路径（服务器可达）不触发兜底', () async {
+      var hookCalls = 0;
+      final h = Harness();
+      await h.start(onDirectFailure: () => hookCalls++);
+      addTearDown(() => h.teardown());
+
+      h.server.routes['/rl.mp4'] = (req) async {
+        await serveStatus(req, 429);
+      };
+      final task = newTask(h.server.urlFor('/rl.mp4'));
+      h.engine.enqueue(task);
+      await pumpUntil(
+          () => h.engine.task(task.id)?.status == DownloadStatus.paused);
+      expect(hookCalls, 0); // 服务器可达，非直连失败
+    });
   });
 
   test('403：重解析回调刷新直链，进度不丢', () async {

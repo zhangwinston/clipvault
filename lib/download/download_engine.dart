@@ -27,7 +27,7 @@ import 'dart:math';
 
 import 'package:dio/dio.dart';
 
-import '../core/app_http.dart' show createAppDio;
+import '../core/app_http.dart' show SystemProxy, createAppDio;
 import 'download_task.dart';
 import 'gallery_saver.dart';
 
@@ -40,6 +40,12 @@ typedef DelayFn = Future<void> Function(Duration duration);
 /// 403/410 时的重解析回调：按 tweetId + bitrate 刷新直链。
 /// 返回 null / 抛异常 = 刷新失败（任务转 failed(urlExpired)）。
 typedef UrlRefresher = Future<String?> Function(String tweetId, int bitrate);
+
+/// 直连失败兜底回调（自动代理调节注入，DESIGN §6.9）：网络类异常且当前
+/// 生效 DIRECT 时触发；fire-and-forget——探测在退避等待窗口内后台完成，
+/// 下次重试经 findProxy 回调实时读缓存自动走新代理。引擎不感知协调器
+/// （对齐 UrlRefresher 注入模式）。
+typedef DirectFailureHook = void Function();
 
 /// 指数退避策略：800ms × 2^n + 抖动（默认抖动上限为基数的 0.5 倍），
 /// 3 次后放弃。语义与 DESIGN §4.3 / core/backoff.dart 完全一致；
@@ -199,6 +205,7 @@ class DownloadEngine {
     this.chunkFlushBytes = 64 * 1024,
     BackoffPolicy? backoff,
     this._urlRefresher,
+    this._onDirectFailure,
     this._store,
     this.albumName = 'ClipVault',
     NowFn? now,
@@ -221,6 +228,7 @@ class DownloadEngine {
   final ParallelGate _gate;
   final BackoffPolicy _backoff;
   final UrlRefresher? _urlRefresher;
+  final DirectFailureHook? _onDirectFailure;
   final DownloadStore? _store;
   final NowFn _now;
   final DelayFn _delay;
@@ -576,6 +584,13 @@ class DownloadEngine {
           return;
         }
         // 网络类/未知异常：指数退避，3 次后 failed(retryable=true)。
+        // 直连失败兜底（§6.9 自动代理调节）：当前生效 DIRECT 时触发探测
+        // 回调（协调器内部单飞+冷却去重，此调用 O(1)；探测在退避等待
+        // 窗口内后台完成，下次重试自动走新代理）。置于耗尽判定之前——
+        // 耗尽转 failed 也触发，惠及手动重试与队列兄弟任务。
+        if (SystemProxy.proxySetting == 'DIRECT') {
+          _onDirectFailure?.call();
+        }
         final current = _tasks[id]!;
         if (current.autoRetries >= _backoff.maxRetries) {
           _apply(id, (t) => t.copyWith(

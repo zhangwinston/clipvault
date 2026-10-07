@@ -541,6 +541,8 @@ GET https://api.fxtwitter.com/status/{id}     （官方路径；P2 方案所写 
 
 **缩略图/头像统一代理出口**（用户反馈 2026-09-30 修复回归）：此前预览卡/下载行/历史详情的缩略图与头像用 `Image.network`/`NetworkImage`——走 `dart:io` 直连，既不读系统代理也不吃 App 的 `SystemProxy`（那只注入 `createAppDio` 构造的 Dio），DNS 污染/代理环境下解析下载正常而图片全部回落 broken_image 图标。修复：`core/proxy_image.dart` 提供 `ProxyNetworkImage`（ImageProvider，经共享 Dio 统一出口拉 bytes，走标准解码管线与 ImageCache），替换全部 5 处图片加载点（preview_card ×3、task_tile、history_screen）。
 
+**双向自动调节**（2026-10-07 增补，`core/proxy_auto.dart` + `settings/proxy_auto_provider.dart`）：手动开关的两极化痛点——移动网忘开代理解析/下载全部超时、回直连可用的 Wi-Fi 忘关流量绕行。方向 A（自动启用，不限网络）：解析重试/引擎退避路径遇网络类失败且当前生效 DIRECT → 探测本地代理候选（已保存地址优先，然后 `127.0.0.1 × [2080, 7890, 7897, 10808, 8118, 1080]`）——两阶段验证：TCP 短超时（800ms）+ 经该代理发真实 HTTPS 请求（`findProxy` 仅支持 HTTP CONNECT，SOCKS-only 端口在阶段 2 自然淘汰）→ 首个通过者经 SettingsController 正常写路径持久化启用 + 主壳 SnackBar 告知。方向 B（自动禁用，仅 Wi-Fi）：解析/下载入队前预检 preflight——双主机（解析 CDN + 视频 CDN）**强制直连**探测都通才算可用（防「半通」环境关代理后下载立刻失败的震荡），可用且手动代理开启 → 自动关闭。防抖四件套：preflight/探测各自单飞、方向 A 全候选失败 60s 冷却、直连判定 TTL 缓存（成功 5min/失败 30s）、自动切换后 2min 稳定期（双向生效；用户手动改设置经装配层设置差分监听 `markUserTouched` 立即解除）。预检等待预算 3s 封顶（超时后台续跑落缓存），非 Wi-Fi 不做预检直连探测（蜂窝方向 A 由失败兜底覆盖）；启动恢复批量入队不预检（引擎失败兜底在首个退避窗口自愈，防启动探测风暴）。总开关 `settings.proxyAuto`（默认开，设置页「自动调节代理」行；关闭即冻结一切自动行为）。边界：系统代理缓存与手动开关独立裁决——方向 B 仅动 manual 开关；方向 A 前提 effective==DIRECT（系统代理在场时不抢注）；在途连接不切换（findProxy 逐新请求生效）；探测直连必须显式 `findProxy='DIRECT'`（复用 createAppDio 会吃 SystemProxy 缓存导致误判）。
+
 ## ⑦ UI 信息架构与导航流
 
 **IA**：底部 3 Tab——「首页」「下载」「我的」（设置并入我的，P2 激活偏好区）。深色模式跟随系统（Material 3 亮/暗主题）。全部文案收口 `core/app_strings.dart`。

@@ -18,6 +18,7 @@ import 'package:clipvault/core/error.dart';
 import 'package:clipvault/core/url_extract.dart';
 import 'package:clipvault/parse/models.dart';
 import 'package:clipvault/parse/parser_provider.dart';
+import 'package:clipvault/settings/proxy_auto_provider.dart';
 import 'package:clipvault/settings/settings_controller.dart';
 import 'package:clipvault/sharing/share_receiver.dart';
 import 'package:clipvault/ui/common/brand.dart';
@@ -116,6 +117,11 @@ class HomeParseController extends Notifier<HomeParseState> {
       clearError: true,
       clearResult: true,
     );
+    // 自动代理预检（§6.9 双向自动调节）：Wi-Fi 下直连可用自动关 / 直连
+    // 不可用预探测启用。骨架卡已上屏吸收等待；协调器内预算封顶（≤3s），
+    // TTL 缓存后近零成本。
+    await ref.read(proxyAutoCoordinatorProvider).preflight();
+    if (generation != _generation) return; // 预检等待期间被取消/替换：丢弃
     ParseError? lastError;
     try {
       final result = await _resolveWithRetry(tweetId, generation);
@@ -185,6 +191,11 @@ class HomeParseController extends Notifier<HomeParseState> {
           continue;
         } on ParseError catch (e) {
           if (e is NetworkTimeout && backoff.hasRetryLeft(networkAttempts)) {
+            // 直连失败兜底（§6.9）：探测在退避窗口内后台完成，第 2/3 次
+            // 重试经 findProxy 实时读缓存即走新代理
+            unawaited(ref
+                .read(proxyAutoCoordinatorProvider)
+                .onDirectFailure(source: 'parse'));
             networkAttempts++;
             break; // 退避后重试（骨架持续）
           }
@@ -192,6 +203,9 @@ class HomeParseController extends Notifier<HomeParseState> {
         } catch (_) {
           // 非 ParseError 的网络/IO 异常统一归 E02（§6.6）后再走退避判定
           if (backoff.hasRetryLeft(networkAttempts)) {
+            unawaited(ref
+                .read(proxyAutoCoordinatorProvider)
+                .onDirectFailure(source: 'parse'));
             networkAttempts++;
             break;
           }
@@ -602,12 +616,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           _startDownload(variant, result.tweet.tweetId, result.tweet),
       // 多视频推文：Chip 切换 → 按视频序号重新解析（TweetParser.resolve videoIndex）
       onSwitchVideo: result.tweet.videoCount > 1
-          ? (videoIndex) => ref
-              .read(tweetParserProvider.future)
-              .then((parser) => parser.resolve(
-                    result.tweet.tweetId,
-                    videoIndex: videoIndex,
-                  ))
+          ? (videoIndex) async {
+              // 旁路解析入口同样先过代理预检（§6.9），与主解析入口一致
+              await ref.read(proxyAutoCoordinatorProvider).preflight();
+              final parser = await ref.read(tweetParserProvider.future);
+              return parser.resolve(
+                result.tweet.tweetId,
+                videoIndex: videoIndex,
+              );
+            }
           : null,
     );
   }

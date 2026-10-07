@@ -416,6 +416,29 @@ class _SettingsBodyState extends ConsumerState<_SettingsBody> {
                 : null,
           ),
           const Divider(height: 1, indent: 16, endIndent: 16),
+          // 自动代理调节总开关（§6.9 双向自动调节）：直连失败自动探测本地
+          // 代理启用；Wi-Fi 预检直连可用自动关闭。样式对齐上方代理行
+          //（ListTile + trailing Switch）。
+          ListTile(
+            leading: const Icon(Icons.autorenew_outlined),
+            title: Text(AppStrings.settingsProxyAuto),
+            subtitle: Text(
+              AppStrings.settingsProxyAutoHint,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 13,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            trailing: Switch(
+              value: settings.proxyAuto,
+              onChanged: (value) => ref
+                  .read(settingsControllerProvider.notifier)
+                  .setProxyAuto(value),
+            ),
+          ),
+          const Divider(height: 1, indent: 16, endIndent: 16),
           // 副标题修正：此前错用代理输入框 hint（文案错配，UI 评审 quickWin）；
           // 运行期行内 spinner 替代纯文字反馈（R4），完成即弹结果框
           ListTile(
