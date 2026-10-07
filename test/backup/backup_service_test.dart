@@ -24,6 +24,10 @@ import 'package:clipvault/data/history_repository.dart';
 class FakeBackupStore implements BackupStore {
   String? saved;
 
+  // implements 下抽象类的具体字段仅是接口（getter/setter 对），需自备存储
+  @override
+  Object? lastError;
+
   /// 写入次数（并发共享用例断言「在途复用不重复写」）
   int writes = 0;
 

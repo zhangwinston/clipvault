@@ -20,6 +20,10 @@ class DocumentsBackupStore implements BackupStore {
 
   static const String _fileName = 'clipvault_backup.json';
 
+  // implements 下抽象类的具体字段仅是接口（getter/setter 对），需自备存储
+  @override
+  Object? lastError;
+
   Future<File> _resolve() async {
     final dir = await getApplicationDocumentsDirectory();
     return File('${dir.path}/$_fileName');

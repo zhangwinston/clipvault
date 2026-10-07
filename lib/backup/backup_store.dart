@@ -50,6 +50,10 @@ class AndroidMediaStoreBackupStore implements BackupStore {
 
   static const MethodChannel _channel = MethodChannel('clipvault/backup');
 
+  // implements 下抽象类的具体字段仅是接口（getter/setter 对），需自备存储
+  @override
+  Object? lastError;
+
   @override
   Future<bool> get isSupported async {
     try {
